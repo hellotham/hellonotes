@@ -720,7 +720,7 @@ struct ContentView: View {
             }
             wireTabs()
             TerminationGuard.current?.register(tabs) { [tabs] lettingGo in await tabs.flushAll(lettingGo: lettingGo) }
-            library.onOpened = { recents.record($0) }
+            library.onOpened = { url in Task { await recents.record(url) } }
             if library.isEmpty {
                 await library.restore()
                 // Nothing restored and we have never seeded: this is a genuine
@@ -758,11 +758,20 @@ struct ContentView: View {
                     }
                 }
             }
-            // Reopen the last-focused collection + note (if still present).
-            if !restoredCollectionID.isEmpty,
-               library.collections.contains(where: { $0.id == restoredCollectionID }) {
-                library.focusedID = restoredCollectionID
+            // Reopen the last-focused collection + note (if still present) —
+            // found by where they are, not by how the last run spelt them.
+            // The scene keeps both, and its open folders, by absolute path,
+            // and the app's container moves (§51.71): after a move nothing
+            // was reopened and every folder was closed.
+            let earlier = ContainerMoves.earlierHomes()
+            if !restoredCollectionID.isEmpty {
+                let open = library.collections.map(\.id)
+                if let kept = ContainerPath.index(of: restoredCollectionID, in: open, earlierHomes: earlier) {
+                    library.focusedID = open[kept]
+                }
             }
+            let folders = ExpandedFolders.inTodaysContainer(expandedFolderIDs, earlierHomes: earlier)
+            if folders != expandedFolderIDs { expandedFolderIDs = folders }
             // Unattended diagnostics: drive the reported-slow paths against the
             // real vault, with the real views observing, and log what happens.
             // Inert unless HN_SELFTEST is set on a Debug build.
@@ -775,18 +784,33 @@ struct ContentView: View {
             }
             if !restoredNotePath.isEmpty {
                 let url = URL(fileURLWithPath: restoredNotePath)
-                if library.allNotes.contains(where: { $0.id == url }) { selectedNoteID = url }
+                let notes = library.allNotes
+                if notes.contains(where: { $0.id == url }) {
+                    selectedNoteID = url
+                } else if let kept = ContainerPath.index(of: restoredNotePath, in: notes.map(\.id.path),
+                                                         earlierHomes: earlier) {
+                    selectedNoteID = notes[kept].id
+                }
             }
             // The library is back: a link that launched the app — handed over
             // before any of the above — is tried now (`NavigationRouter.hold`).
             // After the note of the last session, so the link's is the one
             // shown.
             library.launchDidSettle()
+            // The rail's place, judged now that everything that was open is
+            // open again: its collection, if it came back — a cloud one comes
+            // back last — and the focus if it did not.
+            let settled = RailPlaceStorage.keeping(railPlaceID, open: library.collections.map(\.id),
+                                                   focused: library.focusedID, earlierHomes: earlier)
+            if settled != railPlaceID { railPlaceID = settled }
             // A window that has never had its rail moved opens in the focused
             // collection, not on the Library place: the notes are the point.
             if railPlaceID == RailPlaceStorage.unset {
                 railPlaceID = library.focusedID ?? ""
             }
+            // Open Recent's entries left by earlier moves of the container,
+            // one a collection again (§51.71) — last, since nothing waits on it.
+            await recents.tidy()
         }
         .onChange(of: selectedNoteID) { _, newID in
             restoredNotePath = newID?.path ?? ""
@@ -805,13 +829,30 @@ struct ContentView: View {
             railPlaceID = RailPlaceStorage.following(railPlaceID, focus: newID)
         }
         .onChange(of: library.collections.count) { was, now in
+            // The rail's collection under today's name, if the app's
+            // container has moved since it was stored (§51.71): taken for
+            // closed, it put the window on the Library place.
+            let open = library.collections.map(\.id)
+            let rail = RailPlaceStorage.respelled(railPlaceID, open: open,
+                                                  earlierHomes: ContainerMoves.earlierHomes())
+            if rail != railPlaceID { railPlaceID = rail }
             // Opening the first collection should land you in it rather than
-            // leaving you on the Library place looking at quick actions.
-            if was == 0, now > 0, railPlace == .library { railPlaceID = library.focusedID ?? "" }
+            // leaving you on the Library place looking at quick actions. Not
+            // while the launch is still bringing collections back: a cloud
+            // collection comes back after the local ones, and the window that
+            // stood in one was put on the Library place at every launch —
+            // the launch judges its place once, when it has settled (§51.72).
+            if was == 0, now > 0, !open.contains(rail), library.hasSettled {
+                railPlaceID = library.focusedID ?? ""
+            }
         }
         .onChange(of: library.collections.map(\.id)) { _, open in
-            // The collection the rail stood in has closed: with the focus.
-            railPlaceID = RailPlaceStorage.keeping(railPlaceID, open: open, focused: library.focusedID)
+            // The collection the rail stood in has closed: with the focus —
+            // once the launch has settled; until then it may not be back yet.
+            let earlier = ContainerMoves.earlierHomes()
+            railPlaceID = library.hasSettled
+                ? RailPlaceStorage.keeping(railPlaceID, open: open, focused: library.focusedID, earlierHomes: earlier)
+                : RailPlaceStorage.respelled(railPlaceID, open: open, earlierHomes: earlier)
         }
         .onChange(of: library.pendingRevealCollectionID) { _, id in
             // Something added a collection and asked us to show it. Unlike a
@@ -1761,8 +1802,8 @@ struct ContentView: View {
     }
 
     /// Git, for the collection the sidebar has selected: its branch, a dot for
-    /// uncommitted changes, and the Git panel — commit, push, fetch, history
-    /// (there is no pull: SwiftGitX cannot merge).
+    /// uncommitted changes, and the Git panel — commit, pull, push and fetch
+    /// (a note's history is in the right panel).
     /// A cloud collection is the provider's to version, so it has none.
     @ViewBuilder
     private var gitCommand: some View {

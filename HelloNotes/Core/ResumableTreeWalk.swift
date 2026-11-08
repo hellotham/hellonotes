@@ -613,16 +613,21 @@ nonisolated enum WalkCheckpointStore {
              for: collectionID)
     }
 
-    private static func fileURL(for collectionID: String) -> URL? {
-        guard let base = try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                      in: .userDomainMask,
-                                                      appropriateFor: nil, create: true)
+    /// Named from the collection's stable name, which a move of the app's
+    /// container leaves alone, with a checkpoint kept under its absolute path
+    /// to 1.3.5 moved there first (`ContainerMoves`) — losing one costs an
+    /// interrupted walk its place, and the next walk its percentage.
+    static func fileURL(for collectionID: String, in folder: URL? = nil,
+                        names: ContainerNames = .now) -> URL? {
+        guard let folder = folder ?? (try? FileManager.default.url(for: .applicationSupportDirectory,
+                                                                   in: .userDomainMask,
+                                                                   appropriateFor: nil, create: true))?
+            .appendingPathComponent("ScanCheckpoints", isDirectory: true)
         else { return nil }
         // A path makes a terrible filename; its hash makes a fine one.
-        let name = String(format: "%016llx", UInt64(bitPattern: Int64(collectionID.stableHash)))
-        return base
-            .appendingPathComponent("ScanCheckpoints", isDirectory: true)
-            .appendingPathComponent("\(name).json")
+        return ContainerMoves.place(for: collectionID, in: folder, names: names) {
+            String(format: "%016llx", UInt64(bitPattern: Int64($0.stableHash))) + ".json"
+        }
     }
 }
 

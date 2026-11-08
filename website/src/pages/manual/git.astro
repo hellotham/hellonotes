@@ -71,9 +71,10 @@ import { href } from '../../lib/paths';
       <strong>+</strong>.
     </li>
     <li>
-      Once there is a remote, the pane’s <strong>Sync</strong> menu has <strong>Push</strong>,
-      which uploads your commits, and <strong>Fetch</strong>, which retrieves what is on the
-      remote.
+      Once there is a remote, the pane’s <strong>Sync</strong> menu has <strong>Pull</strong>,
+      which brings in what was pushed from somewhere else, merged with what you have committed
+      here; <strong>Push</strong>, which uploads your commits; and <strong>Fetch</strong>, which
+      retrieves what is on the remote without changing your notes.
     </li>
   </ol>
   <blockquote>
@@ -83,16 +84,23 @@ import { href } from '../../lib/paths';
     </p>
   </blockquote>
   <p>
-    Cloning shows a progress indicator and can be stopped with <strong>Stop</strong> if you change
-    your mind or the repository turns out to be larger than expected.
+    Changes to different parts of a note are merged. If the same part of a note changed both here
+    and on the remote, or the pull would write over a change you have not committed, it stops before
+    writing anything and says which note — commit first, or reconcile that note, and pull again. If
+    something else fails once it has started writing, HelloNotes says so, and what it wrote is in the
+    folder, uncommitted.
+  </p>
+  <p>
+    Cloning, pulling and pushing show a progress indicator and can be stopped with{' '}
+    <strong>Stop</strong> if you change your mind or the remote turns out to be slow.
   </p>
 
   <h2 id="limits">Current limitations</h2>
   <ul>
     <li>
-      <strong>No merge or pull.</strong> HelloNotes can fetch and push, but does not merge diverged
-      histories. If two machines have both committed, reconcile them with a Git client or the
-      command line.
+      <strong>No conflict resolution.</strong> Pull merges histories that have diverged, but when
+      the same part of a note changed on both sides it pulls nothing. Reconcile that note with a
+      Git client or the command line, then pull again.
     </li>
     <li>
       <strong>Auto-commit is disabled in cloud folders</strong> — see{' '}
@@ -105,6 +113,6 @@ import { href } from '../../lib/paths';
   <ul>
     <li>A private repository is a good backup: complete history, under your control, off your Mac.</li>
     <li>Add a <code>.gitignore</code> for <code>.DS_Store</code> and any large binaries you would rather not version.</li>
-    <li>Push before switching machines; fetch when you arrive.</li>
+    <li>Push before switching machines; pull when you arrive.</li>
   </ul>
 </ManualLayout>

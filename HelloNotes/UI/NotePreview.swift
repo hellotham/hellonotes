@@ -43,9 +43,32 @@ struct NotePreview: View {
     /// dynamic colours rather than letting the page guess from
     /// `prefers-color-scheme`.
     @Environment(\.colorScheme) private var colorScheme
+    /// Leaving the foreground is the last moment an iPhone promises: the place
+    /// on the page is kept then (`keepPlace`).
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Where the reader is on the page, as Preview reports it — as often as
+    /// once a frame while scrolling, so in an object no view observes — and
+    /// the note it is a place in. Kept beyond the app as the note is left and
+    /// as the app leaves the foreground (`ReadingPositions`): an iPhone opens
+    /// a note in Preview, and ends a suspended app when it likes, so every
+    /// note came back at its top (implemented.md §51.69).
+    @State private var place = PagePlace()
+
+    private final class PagePlace {
+        var note: URL?
+        var offset: Double?
+
+        /// Keep where the reader was on the page of the note it was a place
+        /// in, beyond the app (`ReadingPositions`).
+        func keep() {
+            guard let note else { return }
+            ReadingPositions.keep(offset.map { Int($0.rounded()) }, of: note, kind: .previewOffset)
+        }
+    }
 
     /// The page on screen, its number (`GFMPreview`'s `pageID`), and the
-    /// editor it was built for.
+    /// editor and note it was built for.
     @State private var page: Page?
     @State private var pagesBuilt = 0
 
@@ -53,6 +76,11 @@ struct NotePreview: View {
         let html: String
         let id: Int
         let editor: String
+        /// A place on this page is a place in this note — whatever note the
+        /// view shows by the time its scroll is reported: the last note's page
+        /// stays up until the next one is built, and its momentum was kept as
+        /// the next note's place (§51.72).
+        let note: URL
     }
 
     /// Everything the page is built from: the text as of the last pause, how
@@ -85,6 +113,19 @@ struct NotePreview: View {
                            pageID: page.id)
                     // Heading jumps from this editor's outline, and no other's.
                     .commandBus(editorID: editor.editorID)
+                    // Opened where the note was left, last time the app ran,
+                    // and the place kept as the reader scrolls.
+                    .readingPlace(
+                        opening: { [note] in
+                            ReadingPositions.position(of: note.fileURL, kind: .previewOffset).map(Double.init)
+                        },
+                        // The note the page on screen is a page of: this
+                        // editor's — under its name now, if it was renamed —
+                        // or the last note's, still up until this one's is built.
+                        onChange: { [place, shown = page.editor == editor.editorID ? note.fileURL : page.note] offset in
+                            place.note = shown
+                            place.offset = offset
+                        })
                     // The enlarge buttons `PreviewSuperset` puts on each diagram.
                     .onDiagramZoom(onDiagramZoom)
                     // A link clicked on the page, followed as one tapped in
@@ -103,7 +144,23 @@ struct NotePreview: View {
             }
         }
         .task(id: inputs) { await build(inputs) }
+        .onChange(of: note.fileURL) { _, _ in keepPlace() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { keepPlace() }
+        }
+        // And at a quit: on the Mac ⌘Q changes no scene phase and runs no
+        // `onDisappear`, so the place was kept only at the last switch
+        // (§51.72). The app's own hook for "the app is going".
+        .onAppear { TerminationGuard.current?.register(place) { [place] _ in place.keep() } }
+        .onDisappear {
+            keepPlace()
+            TerminationGuard.current?.letGo(place) {}
+        }
     }
+
+    /// Keep where the reader was on the page of the note it was a place in,
+    /// beyond the app (`ReadingPositions`).
+    private func keepPlace() { place.keep() }
 
     /// Build the page for `inputs`, off the main actor, and show it — unless
     /// the inputs moved on while it was being built.
@@ -126,12 +183,13 @@ struct NotePreview: View {
     private func build(_ inputs: Inputs) async {
         let text = editor.settledText.text
         let editorID = editor.editorID
+        let noteURL = note.fileURL
         let style = inputs.style
         var plain: String?
         if page?.editor != editorID {
             let html = await offMain { GFMPreview.page(GitHubMarkdown.prepare(text), style: style) }
             guard !Task.isCancelled else { return }
-            show(html, for: editorID)
+            show(html, for: editorID, note: noteURL)
             plain = html
         }
         let superset = await PreviewSuperset.apply(to: text, isDark: inputs.isDark, embeds: embeds)
@@ -144,11 +202,11 @@ struct NotePreview: View {
             return html == shown ? nil : html
         }
         guard !Task.isCancelled, let html else { return }
-        show(html, for: editorID)
+        show(html, for: editorID, note: noteURL)
     }
 
-    private func show(_ html: String, for editorID: String) {
+    private func show(_ html: String, for editorID: String, note: URL) {
         pagesBuilt &+= 1
-        page = Page(html: html, id: pagesBuilt, editor: editorID)
+        page = Page(html: html, id: pagesBuilt, editor: editorID, note: note)
     }
 }

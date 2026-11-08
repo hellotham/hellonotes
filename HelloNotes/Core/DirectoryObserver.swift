@@ -34,6 +34,10 @@ import CoreServices
 nonisolated enum DirectoryEvent: Equatable, Sendable {
     /// Ordinary changes to items inside the watched tree, by path.
     case itemsChanged([String])
+    /// Items inside the tree about to be deleted — a presenter's
+    /// `accommodatePresentedSubitemDeletion`, heard *before* the delete, so
+    /// the disk still says nothing has happened (implemented.md §51.72).
+    case itemsDeleting([String])
     /// Something inside the tree changed and the mechanism cannot say what —
     /// a presenter's `presentedItemDidChange`, where no path list exists.
     case unspecifiedChange
@@ -269,7 +273,11 @@ nonisolated final class DirectoryPresenter: NSObject, NSFilePresenter, @unchecke
     /// `emitNativeToForeignThunk`) — on iOS only, the one platform that builds
     /// this class, so no macOS build or test could see it.
     func accommodatePresentedSubitemDeletion(at url: URL, completionHandler: @escaping (Error?) -> Void) {
-        onEvent(.itemsChanged([url.path]))
+        // Said as a deletion, not a change: the deleter goes on as soon as
+        // this returns, and a look at the disk made for a change found the
+        // file still there, unchanged, and called it no news — a note deleted
+        // on another device stayed listed (implemented.md §51.72).
+        onEvent(.itemsDeleting([url.path]))
         completionHandler(nil)
     }
 

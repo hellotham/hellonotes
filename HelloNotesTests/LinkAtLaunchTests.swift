@@ -193,6 +193,27 @@ struct LinkAtLaunchTests {
         #expect(await eventually { library.pendingOpenNoteID == linking.fileURL })
     }
 
+    /// **A second window's restore waits for the first.** Each window's
+    /// launch restores while the library is empty, and a second, run alongside
+    /// the first, found everything already back and came back — settling the
+    /// launch for its window while the first was still reading the
+    /// collections, so a link that launched the app was tried against notes
+    /// not yet read (implemented.md §51.72). It comes back once they are.
+    @Test(.scratchDefaults) func aSecondRestoreWaitsForTheFirst() async throws {
+        let (root, defaults) = try await aCollectionOpenAtTheLastQuit()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let library = Library(defaults: defaults)
+        defer { library.collections.forEach { $0.deactivate() } }
+
+        let first = Task { await library.restore() }
+        await Task.yield()
+        await library.restore()
+        #expect(library.collections.first?.note(titled: "Writing") != nil,
+                "the second restore came back before the library was read")
+        #expect(library.collections.count == 1)
+        await first.value
+    }
+
     // MARK: - The launch
 
     /// A folder of two notes that a library opened and then went away from —

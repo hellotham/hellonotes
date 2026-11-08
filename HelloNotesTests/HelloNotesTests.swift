@@ -1450,6 +1450,7 @@ struct CollectionAvailabilityTests {
         #expect(collection.notes.count == 2)
     }
 
+
     /// The control: a look made from main-actor code, as both callers made it,
     /// is heard as one — so the two above can fail.
     @Test func theProbeHearsALookMadeOnTheMainActor() async throws {

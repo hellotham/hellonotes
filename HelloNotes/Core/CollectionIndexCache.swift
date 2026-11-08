@@ -13,7 +13,6 @@
 //
 
 import Foundation
-import CryptoKit
 import Synchronization
 
 /// One note's parsed metadata plus the stat fingerprint that validates it.
@@ -109,14 +108,14 @@ nonisolated enum CollectionIndexCache {
     /// Cached records keyed by relative path, or `nil` when there is no usable
     /// cache (first run, version mismatch, or a corrupt file).
     static func load(for rootURL: URL) -> [String: NoteIndexRecord]? {
-        records(in: try? Data(contentsOf: cacheURL(for: rootURL)))
+        records(in: try? Data(contentsOf: keptCacheURL(for: rootURL)))
     }
 
     /// `load`, for a rebuild: read in turn with `save` and `remove`, so a
     /// rebuild numbered after a `remove` cannot have read what it removed.
     /// Off the main actor only — it can wait for a write.
     static func loadForRebuild(for rootURL: URL) -> [String: NoteIndexRecord]? {
-        let url = cacheURL(for: rootURL)
+        let url = keptCacheURL(for: rootURL)
         return records(in: ordering.withLock { try? Data(contentsOf: url) })
     }
 
@@ -246,16 +245,35 @@ nonisolated enum CollectionIndexCache {
     }
 
     /// `Application Support/HelloNotes/IndexCache/<hash>.json`, keyed by the
-    /// collection's root path (mirrors `ChatSessionStore`'s per-collection files).
-    static func cacheURL(for rootURL: URL) -> URL {
-        let base = (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-                    ?? FileManager.default.temporaryDirectory)
-            .appendingPathComponent("HelloNotes/IndexCache", isDirectory: true)
-        let digest = SHA256.hash(data: Data(rootURL.standardizedFileURL.path.utf8))
-        let name = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
-        // `isDirectory: false`: without it the call stats the path to decide,
-        // so the URL depended on what was on disk there — and cost a system
-        // call wherever it was asked, the main actor included.
-        return base.appendingPathComponent("\(name).json", isDirectory: false)
+    /// collection's root path (mirrors `ChatSessionStore`'s per-collection files)
+    /// — named from the app's container when the root is inside it
+    /// (`ContainerPath`). The container moves when the app is installed again,
+    /// and keyed by its old name the cache was missed and the collection
+    /// walked as if never seen, at every install; its records are relative to
+    /// the root, so they hold wherever the root now is.
+    static func cacheURL(for rootURL: URL, home: String = NSHomeDirectory()) -> URL {
+        // `.notDirectory`: without it the call stats the path to decide, so
+        // the URL depended on what was on disk there — and cost a system call
+        // wherever it was asked, the main actor included.
+        folder.appending(path: fileName(ContainerPath.stableName(of: rootURL.path, home: home)),
+                         directoryHint: .notDirectory)
     }
+
+    /// `cacheURL`, for a read: a cache kept under the root's absolute path to
+    /// 1.3.5 is moved there first (`ContainerMoves`). Found, it is a walk not
+    /// made — the one the first launch with stable names would otherwise have
+    /// made of every collection inside the app's container. Asked of a read,
+    /// which looks at the disk anyway; `cacheURL` itself never does.
+    static func keptCacheURL(for rootURL: URL, in folder: URL = CollectionIndexCache.folder,
+                             names: ContainerNames = .now) -> URL {
+        ContainerMoves.place(for: rootURL.path, in: folder, names: names, named: fileName)
+    }
+
+    static var folder: URL {
+        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+         ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("HelloNotes/IndexCache", isDirectory: true)
+    }
+
+    private static func fileName(_ name: String) -> String { "\(ContainerMoves.digest(name)).json" }
 }

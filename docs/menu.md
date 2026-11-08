@@ -353,7 +353,7 @@ or extend another app's menus.
      **New Folder Here…**, **Reveal** and **Move to Trash**; an attachment's
      **Open in Default App**; and a note's **Download / Remove Download**. They
      are in row menus and the sidebar's `+` only.
-   - **Git**: Initialize Repository, Commit, Push, Fetch and Connect Remote live
+   - **Git**: Initialize Repository, Commit, Pull, Push, Fetch and Connect Remote live
      only in the Git pane — the sidebar's Git row, or a note window's bottom
      bar.
    - The reverse gap, menu items with **no touch route**: the **Command

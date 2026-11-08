@@ -2,7 +2,8 @@
 //  GitThread.swift
 //  HelloNotes
 //
-//  libgit2's network work — a clone, a push, a fetch — on a thread of its own.
+//  libgit2's network work — a clone, a push, a fetch, a pull — on a thread of
+//  its own.
 //
 //  Every libgit2 call blocks its thread, and a network one for as long as the
 //  network takes: a clone of a big repository for minutes, a push to a host
@@ -46,6 +47,7 @@ nonisolated enum GitThread {
     /// The threads' names — what a stack sample shows, and what a test hears.
     static let push = "com.hellotham.HelloNotes.git.push"
     static let fetch = "com.hellotham.HelloNotes.git.fetch"
+    static let pull = "com.hellotham.HelloNotes.git.pull"
     static let clone = "com.hellotham.HelloNotes.git.clone"
     static let create = "com.hellotham.HelloNotes.git.create"
 

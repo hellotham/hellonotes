@@ -212,7 +212,222 @@ struct DirectoryPresenterTests {
         #expect(collection.walksAskedFor == asked,
                 "a change that is not the collection's asked for \(collection.walksAskedFor - asked) walks")
 
-        await collection.receive(.itemsChanged([folder.appending(path: "Made elsewhere.md").path])) {}.value
+        // Made, not merely named: a path that is not there and that the
+        // collection never showed changes nothing it shows (§51.69).
+        let madeElsewhere = folder.appending(path: "Made elsewhere.md")
+        try Data("# Made elsewhere\n".utf8).write(to: madeElsewhere)
+        await collection.receive(.itemsChanged([madeElsewhere.path])) {}.value
         #expect(collection.walksAskedFor == asked + 1, "a change made elsewhere to a note was not news")
+    }
+
+    /// **The collection's own save, heard long after, is not news.** iOS tells
+    /// a suspended app nothing and hands it everything on its return, the save
+    /// it made on its way out among it — the note and the atomic save's own
+    /// temporary file, measured in the simulator — long past the time window
+    /// that recognises the collection's own writes. Each was taken for someone
+    /// else's change, and the vault was walked at every return to the app
+    /// (implemented.md §51.69). What the save left is looked at instead, and a
+    /// note the collection shows untouched is not news either. A change made
+    /// elsewhere since, a new file and a shown note gone still are — each on a
+    /// collection of its own, so no walk one of them asks for can answer for
+    /// the next.
+    @Test @MainActor func theCollectionsOwnSaveHeardLongAfterIsNotNews() async throws {
+        #expect(try await walksAsked { folder in
+            [folder.appending(path: "Note.md").path,
+             folder.appending(path: "Note.md").path + ".sb-1f2f778f-xENn8V",
+             folder.appending(path: "Shown.md").path]
+        } == 0, "the collection's own save, heard late, asked for a walk")
+
+        #expect(try await walksAsked { folder in
+            let note = folder.appending(path: "Note.md")
+            try Data("# Note\n\nChanged on another device, at more length.\n".utf8).write(to: note)
+            return [note.path]
+        } == 1, "a change made elsewhere after the save was not news")
+
+        #expect(try await walksAsked { folder in
+            let new = folder.appending(path: "New.md")
+            try Data("# New\n".utf8).write(to: new)
+            return [new.path]
+        } == 1, "a new file was not news")
+
+        #expect(try await walksAsked { folder in
+            let gone = folder.appending(path: "Shown.md")
+            try FileManager.default.removeItem(at: gone)
+            return [gone.path]
+        } == 1, "a shown note gone was not news")
+    }
+
+    /// **A deletion heard before it is made is news when the collection shows
+    /// what is going.** iOS asks a presenter to accommodate a delete before
+    /// making it, and a look at the disk then found the note still there and
+    /// unchanged — a note deleted on another device stayed listed
+    /// (implemented.md §51.72). Something the collection does not show — its
+    /// own delete, heard late — is not. The control: the same path, heard as
+    /// a change, is no news while the file is untouched.
+    @Test @MainActor func aDeletionHeardBeforeItIsMadeIsNewsWhenShown() async throws {
+        #expect(try await walksAsked(as: DirectoryEvent.itemsDeleting) { folder in
+            [folder.appending(path: "Shown.md").path]
+        } == 1, "a shown note about to be deleted was not news")
+        #expect(try await walksAsked(as: DirectoryEvent.itemsDeleting) { folder in
+            [folder.appending(path: "Never shown.md").path]
+        } == 0, "the delete of something never shown was news")
+        #expect(try await walksAsked { folder in
+            [folder.appending(path: "Shown.md").path]
+        } == 0, "the control: an untouched shown note heard as a change was news")
+    }
+
+    /// **A note the collection saved, gone from the picture and put back as it
+    /// was, is news.** Its saved size and date explained it only while the
+    /// picture still showed it: recovered from Recently Deleted, or put back
+    /// from the Trash, it was never listed again (implemented.md §51.72).
+    @Test @MainActor func aSavedNoteBackFromAwayIsNews() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let note = folder.appending(path: "Note.md")
+        try Data("# Note\n".utf8).write(to: note)
+        try Data("# Shown\n".utf8).write(to: folder.appending(path: "Shown.md"))
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        defer { collection.deactivate() }
+
+        let saved = "# Note\n\nTyped before it went to the Trash.\n"
+        try Data(saved.utf8).write(to: note)
+        collection.noteDidSave(note, text: saved)
+        // Events take turns: one heard now is handled after the save's look.
+        await collection.receive(.itemsChanged([])) {}.value
+
+        // Gone, and gone from the picture; then put back with its date and size.
+        let away = FileManager.default.temporaryDirectory.appending(path: "away-\(UUID().uuidString).md")
+        try FileManager.default.moveItem(at: note, to: away)
+        await collection.scanOffMain()
+        try #require(!collection.notes.contains { $0.title == "Note" }, "the walk still shows the note gone")
+        try FileManager.default.moveItem(at: away, to: note)
+        collection.forgetRecentSelfWrites()
+
+        let asked = collection.walksAskedFor
+        await collection.receive(.itemsChanged([note.path])) {}.value
+        #expect(collection.walksAskedFor == asked + 1, "the saved note, put back with its saved bytes, was not news")
+    }
+
+    /// **A late look waits for no look at the folder.** The check on late
+    /// news asked about each changed file on the collection's own lane, where
+    /// the folder is looked at, in the event's turn — so one held up the other
+    /// (implemented.md §51.72). With that lane held, the look still answers:
+    /// an untouched note is no news.
+    @Test(.timeLimit(.minutes(1))) @MainActor func aLateLookWaitsForNoLookAtTheFolder() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let note = folder.appending(path: "Note.md")
+        try Data("# Note\n".utf8).write(to: note)
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        defer { collection.deactivate() }
+
+        let letGo = DispatchSemaphore(value: 0)
+        defer { letGo.signal() }
+        await hold(collection.rootCalls.lane(for: collection.rootURL), until: letGo)
+
+        collection.forgetRecentSelfWrites()
+        let asked = collection.walksAskedFor
+        await collection.receive(.itemsChanged([note.path])) {}.value
+        #expect(collection.walksAskedFor == asked, "an untouched note, looked at beside a held folder, was news")
+    }
+
+    /// **A file its provider does not answer about holds up no turn.** The
+    /// check asks the provider about each changed file — its size, its date,
+    /// whether it is downloaded — and waited for the answer however long it
+    /// took: one note the provider never answered about held that turn and
+    /// every one after it, an unmount, Try Again (implemented.md §51.72). The
+    /// note's lane is held here, and the turn ends anyway — no answer is news,
+    /// and the folder is walked — and so does the turn after it, while the
+    /// lane is still held.
+    @Test(.timeLimit(.minutes(1))) @MainActor func aFileItsProviderDoesNotAnswerAboutHoldsUpNoTurn() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let note = folder.appending(path: "Note.md")
+        try Data("# Note\n".utf8).write(to: note)
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        defer { collection.deactivate() }
+
+        // Lanes of the test's own: a lane held here holds no other test's look.
+        let calls = FileIO.ProviderCalls(isHere: FileIO.ProviderCalls.live.isHere,
+                                         askFor: FileIO.ProviderCalls.live.askFor,
+                                         lanes: FileIO.ProviderCalls.makeLanes("hn-test.late-news"))
+        collection.newsCalls = calls
+        let letGo = DispatchSemaphore(value: 0)
+        defer { letGo.signal() }
+        await hold(calls.lane(for: URL(filePath: note.path, directoryHint: .notDirectory)), until: letGo)
+
+        collection.forgetRecentSelfWrites()
+        let asked = collection.walksAskedFor
+        await collection.receive(.itemsChanged([note.path])) {}.value
+        #expect(collection.walksAskedFor == asked + 1, "a file whose provider did not answer was not taken for news")
+        await collection.receive(.rootChanged) {}.value
+        #expect(collection.state == .ready, "the turn after it did not look at the folder")
+    }
+
+    /// **A change heard while a walk is coming is that walk's to read.** It
+    /// lists the folder after the change. In a burst of news — a return to
+    /// the app, a pull made on another device — every event after the first
+    /// was looked at all the same, each against the whole picture on the main
+    /// actor, and asked for a walk of its own (implemented.md §51.72). The
+    /// control is the first event, which is looked at and found news.
+    @Test @MainActor func aChangeHeardWhileAWalkIsComingIsThatWalksToRead() async throws {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = folder.appending(path: "First.md"), second = folder.appending(path: "Second.md")
+        try Data("# First\n".utf8).write(to: first)
+        try Data("# Second\n".utf8).write(to: second)
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        defer { collection.deactivate() }
+        // Coming for the whole test, whatever the machine's load.
+        collection.reconcileDelay = .seconds(60)
+
+        try Data("# First\n\nChanged on another device.\n".utf8).write(to: first)
+        try Data("# Second\n\nChanged on another device.\n".utf8).write(to: second)
+        collection.forgetRecentSelfWrites()
+        let asked = collection.walksAskedFor
+        await collection.receive(.itemsChanged([first.path])) {}.value
+        #expect(collection.walksAskedFor == asked + 1, "the control: a change made elsewhere was not news")
+        await collection.receive(.itemsChanged([second.path])) {}.value
+        #expect(collection.walksAskedFor == asked + 1, "a change heard while a walk was coming asked for another")
+    }
+
+    /// Hold `lane` until `letGo` is signalled — a provider not answering about
+    /// whatever falls on it — and return once the hold has begun.
+    @MainActor private func hold(_ lane: DispatchQueue, until letGo: DispatchSemaphore) async {
+        await withCheckedContinuation { (holding: CheckedContinuation<Void, Never>) in
+            lane.async { holding.resume(); letGo.wait() }
+        }
+    }
+
+    /// The walks a collection asks for when told of the paths `change` names,
+    /// after it has saved a note and the time window has passed — a
+    /// collection of its own, in a folder of its own.
+    @MainActor private func walksAsked(as event: ([String]) -> DirectoryEvent = DirectoryEvent.itemsChanged,
+                                       after change: (URL) throws -> [String]) async throws -> Int {
+        let folder = try makeFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let note = folder.appending(path: "Note.md")
+        try Data("# Note\n".utf8).write(to: note)
+        try Data("# Shown\n".utf8).write(to: folder.appending(path: "Shown.md"))
+        let collection = Collection(rootURL: folder)
+        await collection.scanOffMain()
+        defer { collection.deactivate() }
+        try #require(collection.notes.count == 2)
+
+        // Saved as the editor saves: written, then told to the collection.
+        let saved = "# Note\n\nTyped before the app went home.\n"
+        try Data(saved.utf8).write(to: note)
+        collection.noteDidSave(note, text: saved)
+        // The app is suspended, and the window that knows its writes by time
+        // passes before it is back.
+        collection.forgetRecentSelfWrites()
+        let asked = collection.walksAskedFor
+        let paths = try change(folder)
+        await collection.receive(event(paths)) {}.value
+        return collection.walksAskedFor - asked
     }
 }

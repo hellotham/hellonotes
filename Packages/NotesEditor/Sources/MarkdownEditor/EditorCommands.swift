@@ -490,6 +490,9 @@ public extension MarkdownFormatting where Self: NSTextView {
     /// `scrollRangeToVisible` does nothing when the target is already visible
     /// at the bottom, which reads as the jump having failed.
     func scrollHeadingIntoView(at offset: Int) {
+        // The editor's own view stands the heading at the top as a place, so
+        // a place put back cannot take the jump back (`showAtTop`, §51.72).
+        if let view = self as? MarkdownTextView { view.showAtTop(offset); return }
         guard let layoutManager, let container = textContainer else {
             scrollRangeToVisible(NSRange(location: offset, length: 0)); return
         }
@@ -505,6 +508,9 @@ public extension MarkdownFormatting where Self: NSTextView {
 public extension MarkdownFormatting where Self: UITextView {
     /// See the AppKit twin: top of the viewport, not merely visible.
     func scrollHeadingIntoView(at offset: Int) {
+        // The editor's own view stands the heading at the top as a place, so
+        // a place put back cannot take the jump back (`showAtTop`, §51.72).
+        if let view = self as? MarkdownUITextView { view.showAtTop(offset); return }
         let range = NSRange(location: offset, length: 0)
         guard let start = position(from: beginningOfDocument, offset: offset),
               let textRange = textRange(from: start, to: start) else {

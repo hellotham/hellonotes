@@ -184,8 +184,12 @@ final class Collection: Identifiable {
         }
     }
 
+    /// Keyed by the collection's stable name (`ContainerMoves.key`): by its
+    /// path, the choice was reset by every move of the app's container
+    /// (implemented.md §51.72). The launch moves what was kept under the
+    /// path (`ContainerMoves.adoptKey`, at `init`).
     nonisolated static func showFilesKey(_ id: String) -> String {
-        "showsNonNoteFiles:" + id
+        ContainerMoves.key("showsNonNoteFiles:", for: id)
     }
 
     /// How many non-note files the last scan passed over. Stated rather than
@@ -318,6 +322,23 @@ final class Collection: Identifiable {
     /// that other file was held (implemented.md §51.64).
     nonisolated let rootCalls = FileIO.ProviderCalls.ownLane("com.hellotham.HelloNotes.collection-root")
 
+    /// Where the check on late news (`anyStillNews`) and the look at what a
+    /// save left (`rememberFingerprints`) ask the provider about each file:
+    /// a file on a lane of its own among sixteen kept for them. They asked
+    /// on the root lane, in the event's turn, with no deadline — so a provider
+    /// that never answered about one changed note held every turn after it,
+    /// Try Again and the launch's look at a dead bookmark with it
+    /// (implemented.md §51.72). A test that holds one brings lanes of its own.
+    @ObservationIgnored var newsCalls = Collection.sharedNewsCalls
+    nonisolated static let sharedNewsCalls = FileIO.ProviderCalls(
+        isHere: FileIO.ProviderCalls.live.isHere, askFor: FileIO.ProviderCalls.live.askFor,
+        lanes: FileIO.ProviderCalls.makeLanes("com.hellotham.HelloNotes.late-news"))
+
+    /// How long a turn waits for those answers (`answered(within:else:)`).
+    /// None by then is news, and the folder is walked, as every change was
+    /// before the check (§51.69).
+    nonisolated static let lateLookPatience: Duration = .seconds(2)
+
     /// Do `body` — a look at the collection's folder, which its provider can
     /// hold up — on the collection's own lane (`rootCalls`).
     func onRootLane<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
@@ -346,15 +367,20 @@ final class Collection: Identifiable {
     /// once hear only their own folders; empty outside tests.
     nonisolated static let availabilityProbes = Mutex<[String: @Sendable (_ onMainThread: Bool) -> Void]>([:])
 
+    /// Told, for a folder's path, whether each walk of it says how it is
+    /// going — which a test cannot see by waiting out the 750 ms before the
+    /// progress shows. Keyed by path; empty outside tests.
+    nonisolated static let announcementProbes = Mutex<[String: @Sendable (_ announced: Bool) -> Void]>([:])
+
     /// The Markdown notes discovered inside the collection.
-    var notes: [Note] = []
+    var notes: [Note] = [] { didSet { shownCache = nil } }
 
     /// Non-Markdown files (PDFs, images, CSVs, …), browsable alongside notes.
-    var attachments: [CollectionFile] = []
+    var attachments: [CollectionFile] = [] { didSet { shownCache = nil } }
 
     /// Every directory inside the collection, so empty folders (e.g. one just
     /// created, or one whose last note moved out) still appear in the tree.
-    var folders: [URL] = []
+    var folders: [URL] = [] { didSet { shownCache = nil } }
 
     /// Bumped on every `scan()` — a cheap fingerprint of the note/attachment/
     /// folder *set* so views can cache the folder tree and rebuild only when the
@@ -650,6 +676,17 @@ final class Collection: Identifiable {
         externalChangeHandler?()
     }
 
+    /// A pull moved the working tree under the collection: notes came, went
+    /// and changed in ways no write of the collection's explains — and libgit2
+    /// writes past file coordination, so on iOS the folder's presenter hears
+    /// none of it. Read like any change from outside: the folder walked, and
+    /// the open notes told — a clean one reloads, one holding typing is asked
+    /// about.
+    private func workingTreeChangedByGit() {
+        guard !isClosed else { return }
+        reconcileSoon(onExternalChange: externalChangeHandler ?? {})
+    }
+
     /// How long a write of our own goes on explaining a change notification.
     ///
     /// **Sized for a File Provider volume, not a local disk.** At 3s this was
@@ -669,6 +706,13 @@ final class Collection: Identifiable {
     /// autosaving, or iCloud streaming a file down in pieces) into a single
     /// scan + reconcile, instead of re-walking the whole vault per event.
     private var externalReconcileTask: Task<Void, Never>?
+    /// The number of the reconcile still waiting out its debounce — `nil` once
+    /// it walks, or is called off for good. A change heard meanwhile is that
+    /// walk's to read, since it lists the folder after the change: in a burst
+    /// of news every event after the first was looked at all the same, each
+    /// against the whole picture on the main actor (§51.72).
+    @ObservationIgnored private var pendingReconcile: Int?
+    @ObservationIgnored private var reconcilesScheduled = 0
     /// How many walks what the collection heard about its folder has asked
     /// for (`reconcileSoon`) — for a test to ask, where sleeping past the
     /// debounce and counting walks would ask how long something took.
@@ -679,6 +723,10 @@ final class Collection: Identifiable {
 
     /// How long a reconcile waits for the burst to end before scanning.
     private static let reconcileDebounce: Duration = .milliseconds(400)
+    /// How long a walk asked for waits out its debounce — longer for a test
+    /// that asks what happens while one is coming, which a busy machine could
+    /// otherwise outlast.
+    @ObservationIgnored var reconcileDelay: Duration = Collection.reconcileDebounce
 
     /// The rebuild of the derived indexes in flight (`refreshDerived`). Only a
     /// newer rebuild cancels it — one that will land with everything it would
@@ -796,9 +844,12 @@ final class Collection: Identifiable {
         // Read under the key it is written under (`showsNonNoteFiles`, by
         // `id`): it was read under the standardized path, which a folder
         // reached through a symlink spells another way, so that folder's
-        // choice never came back (implemented.md §51.67).
-        self.showsNonNoteFiles = UserDefaults.standard.object(forKey: Self.showFilesKey(identity.id)) as? Bool ?? true
+        // choice never came back (implemented.md §51.67). And by its stable
+        // name, the choice kept under the path moved there first (§51.72).
+        self.showsNonNoteFiles = UserDefaults.standard.object(
+            forKey: ContainerMoves.adoptKey("showsNonNoteFiles:", for: identity.id)) as? Bool ?? true
         git.rootURL = rootURL
+        git.onWorkingTreeChanged = { [weak self] in self?.workingTreeChangedByGit() }
         bookmarks.load(rootURL: rootURL, standardizedPath: identity.standardizedPath, spellings: identity.spellings)
         embedProvider.owner = self
     }
@@ -854,11 +905,29 @@ final class Collection: Identifiable {
         return Self.respelled(url, under: rootURL, dropping: length)
     }
 
-    /// Whether two URLs name one file of this collection, whatever each is
+    /// Whether a URL names `url`'s file in this collection, whatever each is
     /// spelled under — never through the file system, which answers for a
     /// file that has just gone (`standardizedFileURL`) the other way round.
-    nonisolated func sameFile(_ a: URL, _ b: URL) -> Bool {
-        a == b || CollectionIndexCache.relativePath(of: a, in: rootURL) == CollectionIndexCache.relativePath(of: b, in: rootURL)
+    ///
+    /// Asked of every note in the list, so `url`'s place is worked out once
+    /// and each note's by its spelling against the root's (`rootSpellings`),
+    /// as `selfWriteKey` does — text only. Asked through
+    /// `CollectionIndexCache.relativePath`, every call looked the root up on
+    /// the disk again (`resolvingSymlinksInPath`), once a note: 0.17 s of main
+    /// thread to make a note in a collection of 2,000, and 0.30 s to rename
+    /// one, which is what naming a new note is (`MainActorBudgetTests`,
+    /// implemented.md §51.72).
+    nonisolated func sameFile(as url: URL) -> (URL) -> Bool {
+        let spellings = rootSpellings
+        func place(_ path: String) -> String {
+            for spelling in spellings {
+                if path.hasPrefix(spelling) { return String(path.dropFirst(spelling.count)) }
+                if path + "/" == spelling { return "" }
+            }
+            return path
+        }
+        let wanted = place(url.path)
+        return { other in other == url || place(other.path) == wanted }
     }
 
     nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL])? {
@@ -974,8 +1043,8 @@ final class Collection: Identifiable {
         //
         // Neither is a change to the collection, and republishing for either
         // rebuilds the whole sidebar.
-        if Self.signature(result, root: rootURL)
-            == Self.signature((notes, attachments, folders), root: rootURL) {
+        if Self.signature(result, spellings: rootSpellings)
+            == Self.signature((notes, attachments, folders), spellings: rootSpellings) {
             if case .stale = state { state = .ready }
             return
         }
@@ -998,19 +1067,26 @@ final class Collection: Identifiable {
     /// change looks like.
     private static func signature(
         _ picture: (notes: [Note], attachments: [CollectionFile], folders: [URL]),
-        root: URL
+        spellings prefixes: [String]
     ) -> (Set<String>, Set<String>, Set<String>) {
-        let prefixes = CollectionIndexCache.rootPrefixes(root)
+        // By text, against the root's spellings (`rootSpellings`): never
+        // `standardizedFileURL`, which asks the disk about a path spelled
+        // `/private/…` — every path on an iPhone, twice for every item in
+        // the collection each time a walk landed (§51.72).
         func relative(_ url: URL) -> String {
-            let path = url.standardizedFileURL.path
+            let path = url.path
             for base in prefixes where path.hasPrefix(base) {
                 return String(path.dropFirst(base.count))
             }
             return path
         }
         return (
+            // Whether a note is in the cloud only is part of the picture: left
+            // out, a walk that found a note downloaded or evicted kept the old
+            // picture, and its badge stayed as it was (§51.72) — what the
+            // index cache's "a badge a moment late" never allowed for.
             Set(picture.notes.map {
-                "\(relative($0.fileURL))|\($0.lastModified.timeIntervalSinceReferenceDate)|\($0.fileSize)"
+                "\(relative($0.fileURL))|\($0.lastModified.timeIntervalSinceReferenceDate)|\($0.fileSize)|\($0.isOnlineOnly)"
             }),
             Set(picture.attachments.map { relative($0.url) }),
             Set(picture.folders.map(relative))
@@ -1062,6 +1138,9 @@ final class Collection: Identifiable {
     /// Whether a walk is running, and whether another was asked for while it was.
     private var scanInFlight: Task<Void, Never>?
     private var rescanWhenIdle = false
+    /// Whether the next walk says how it is going though there is a picture
+    /// on screen already — set by Rescan, which someone asked for.
+    @ObservationIgnored private var announceNextWalk = false
 
     /// Whether the one retry after unreadable folders has been spent.
     ///
@@ -1095,7 +1174,21 @@ final class Collection: Identifiable {
         // is nothing to lose.
         let isFirstPicture = notes.isEmpty && attachments.isEmpty
 
+        // **A walk that checks a picture already on screen says nothing.**
+        // Every launch draws the collection from its index cache and walks the
+        // folder to check it, every change heard from outside walks it again,
+        // and each of those, past 750 ms, put up "Scanning …" and then
+        // "Scanned … notes in … folders" over notes that had been there,
+        // usable, all along — on an iPhone, at every launch and every return
+        // to the app: "keeps rescanning collection when relaunched or resumed"
+        // (implemented.md §51.69). What it finds still arrives; only a walk
+        // with nothing yet to show, and the one someone asked for (Rescan),
+        // says how it is going.
+        let announced = isFirstPicture || announceNextWalk
+        announceNextWalk = false
+        if let probe = Self.announcementProbes.withLock({ $0[rootURL.path] }) { probe(announced) }
         let reveal = Task { @MainActor [weak self] in
+            guard announced else { return }
             try? await Task.sleep(for: .milliseconds(750))
             guard !Task.isCancelled else { return }
             self?.showsScanProgress = true
@@ -1444,9 +1537,10 @@ final class Collection: Identifiable {
         // same directory, `standardizedFileURL` does not unify them, and a
         // mismatch here removes a note the walk never looked at.
         let blindSpots: Set<String>? = unreadable.map(Set.init)
-        let prefixes = CollectionIndexCache.rootPrefixes(rootURL)
+        // By text, against the root's spellings, as `signature` is (§51.72).
+        let prefixes = rootSpellings
         func relative(_ url: URL) -> String? {
-            let path = url.standardizedFileURL.path
+            let path = url.path
             for base in prefixes where path.hasPrefix(base) {
                 return String(path.dropFirst(base.count))
             }
@@ -1483,10 +1577,17 @@ final class Collection: Identifiable {
 
     /// Ask the provider what has changed and apply it. Cheap when the provider
     /// has a delta cursor; a full metadata sync when it does not.
-    func refreshFromProvider() async {
+    ///
+    /// Asked for — Refresh, from the menu, the status bar or the sidebar — its
+    /// walk says how it is going and can be stopped, like Rescan's: once
+    /// check walks went quiet (§51.69), a refresh someone pressed showed
+    /// nothing at all (§51.72). The launch's own refresh, which nobody asked
+    /// for, stays quiet (`announcing: false`).
+    func refreshFromProvider(announcing: Bool = true) async {
         guard let remote else { return }
         do {
             _ = try await remote.refresh()
+            if announcing { announceNextWalk = true }
             await scanOffMain()
             refreshDerived()
         } catch {
@@ -1946,6 +2047,7 @@ final class Collection: Identifiable {
         // reading could write it again after it.
         let root = rootURL
         await offMain { CollectionIndexCache.remove(for: root) }
+        announceNextWalk = true
         await scanOffMain()
         refreshDerived(force: true)
     }
@@ -2004,7 +2106,9 @@ final class Collection: Identifiable {
     /// and every turn after it with it. Turns call synchronous code and look
     /// at the folder on the collection's own lane (`onRootLane`), nothing
     /// else: on a lane another file shares, a file held there held every turn
-    /// after the look.
+    /// after the look. The one look at files a turn takes — the check on late
+    /// news — asks on lanes kept for it and waits no longer than its patience
+    /// (`newsCalls`, `lateLookPatience`).
     @discardableResult
     private func inTurn<T: Sendable>(_ work: @escaping @MainActor () async -> T) -> Task<T, Never> {
         let previous = lastTurn
@@ -2068,12 +2172,50 @@ final class Collection: Identifiable {
             reconcileSoon(onExternalChange: onExternalChange)
 
         case .itemsChanged(let paths):
-            // `.git` churn is not a *content* change — `hasExternalChanges`
+            // `.git` churn is not a *content* change — `externalPaths`
             // rightly filters it out, or every auto-commit would re-scan the
             // vault. But it is still news: an external `git pull`, checkout or
             // rebase moves the branch and the change count.
             if paths.contains(where: Self.isGitMetadata) { refreshGitSoon() }
-            guard hasExternalChanges(in: paths) else { return }
+            let unexplained = externalPaths(in: paths)
+            guard !unexplained.isEmpty else { return }
+            guard pendingReconcile == nil else {
+                MainActorWatchdog.note("itemsChanged — a walk is already coming; no look")
+                return
+            }
+            // **What is still as the collection left it is not news, however
+            // late it is heard.** iOS tells a suspended app nothing, and on
+            // its return hands over everything at once — the save the app
+            // made on its way out among it, long past the time any window
+            // allows: the collection walked the vault to find its own save,
+            // at every return to the app (implemented.md §51.69).
+            guard await anyStillNews(unexplained) else {
+                MainActorWatchdog.note("itemsChanged — \(unexplained.count) path(s) as the collection left them; no walk")
+                return
+            }
+            // Closed while the disk was looked at: its verdict is dropped, as
+            // `.rootChanged`'s is — or a walk was made of a folder whose scope
+            // had been given up (§51.72).
+            guard !isClosed else { return }
+            reconcileSoon(onExternalChange: onExternalChange)
+
+        case .itemsDeleting(let paths):
+            // Heard before the delete is made, so the disk has nothing to say
+            // yet: news when the collection shows what is going. Something it
+            // does not show — its own delete, heard late — is not.
+            let unexplained = externalPaths(in: paths)
+            guard !unexplained.isEmpty else { return }
+            // A walk already coming could list the folder before the delete
+            // is made: it is asked again, after it.
+            guard pendingReconcile == nil else {
+                reconcileSoon(onExternalChange: onExternalChange)
+                return
+            }
+            let shown = shownByKey()
+            guard unexplained.contains(where: { selfWriteKey($0).map { shown[$0] != nil } ?? true }) else {
+                MainActorWatchdog.note("itemsDeleting — \(unexplained.count) path(s) not shown; no walk")
+                return
+            }
             reconcileSoon(onExternalChange: onExternalChange)
 
         case .unspecifiedChange:
@@ -2139,7 +2281,7 @@ final class Collection: Identifiable {
     /// the Git refresh below, so an iPad's change count went stale the moment
     /// anything happened outside the app.
     private func reconcileSoon(onExternalChange: @escaping @MainActor () -> Void) {
-        reconcileSoon(onExternalChange: onExternalChange, after: Self.reconcileDebounce)
+        reconcileSoon(onExternalChange: onExternalChange, after: reconcileDelay)
     }
 
     /// The same, held off for `delay` — long enough that a change we may have
@@ -2159,9 +2301,15 @@ final class Collection: Identifiable {
             return
         }
         externalReconcileTask?.cancel()
+        reconcilesScheduled &+= 1
+        let number = reconcilesScheduled
+        pendingReconcile = number
         externalReconcileTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: delay)
-            guard !Task.isCancelled, let self else { return }
+            guard let self else { return }
+            // Walking now, or called off: unless a newer one replaced it.
+            if self.pendingReconcile == number { self.pendingReconcile = nil }
+            guard !Task.isCancelled else { return }
             self.reconcileIsWalking = true
             defer { self.reconcileIsWalking = false }
             // No gate here any more, because there is nothing to gate
@@ -2172,12 +2320,16 @@ final class Collection: Identifiable {
             MainActorWatchdog.note("external reconcile — full vault walk begins")
             await self.scanOffMain()
             self.refreshDerived()
+            // What changed reaches the open notes first — what a pull wrote
+            // among it. The Git status queues behind whatever Git is doing,
+            // a push that follows the pull among it, and the notes waited for
+            // it showing what the pull had replaced (§51.72).
+            onExternalChange()
             // Files changed under a repository, so its change count did too.
             // Without this the status bar kept asserting whatever it read at
             // activate — including a branch name an external checkout had since
-            // moved on from.
-            if self.git.status.isRepository { await self.git.refreshStatus() }
-            onExternalChange()
+            // moved on from. Not waited for, as `activate` does not wait.
+            if self.git.status.isRepository { Task { await self.git.refreshStatus() } }
         }
     }
 
@@ -2185,7 +2337,7 @@ final class Collection: Identifiable {
     /// recognised as ours rather than mistaken for someone else's edit.
     ///
     /// Prunes as it records. The log is only ever read for the last few seconds,
-    /// and the read that used to prune it (`hasExternalChanges`) needs a path
+    /// and the read that used to prune it (`externalPaths`) needs a path
     /// list — which a file presenter never supplies, so on iOS nothing else
     /// would ever clear it.
     private func rememberSelfWrite(_ url: URL, at time: Date = Date()) {
@@ -2213,17 +2365,19 @@ final class Collection: Identifiable {
         return nil
     }
 
-    /// Whether `paths` contains a change we didn't cause. Filters out our own
-    /// recent autosaves and hidden-file churn (atomic-write temp files, the
-    /// `.git` directory that auto-commit touches, `.DS_Store`), so the app's own
-    /// writes never trigger a full re-scan + re-index of the collection.
+    /// The changes in `paths` we didn't cause, as far as time can tell. Filters
+    /// out our own recent autosaves and hidden-file churn (atomic-write temp
+    /// files, the `.git` directory that auto-commit touches, `.DS_Store`), so
+    /// the app's own writes never trigger a full re-scan + re-index of the
+    /// collection. What is left is looked at before a walk (`anyStillNews`):
+    /// on iOS the news of a write can come long after any window.
     ///
     /// Cross-platform along with the log it reads: FSEvents names the paths
     /// that changed, and so does the iOS presenter for anything inside the
     /// folder (`DirectoryPresenter`). A change to the folder itself comes with
     /// no path, and asks the weaker, path-less form of the same question in
     /// `selfWriteSettleDelay`.
-    private func hasExternalChanges(in paths: [String]) -> Bool {
+    private func externalPaths(in paths: [String]) -> [String] {
         let now = Date()
         recentSelfWrites = recentSelfWrites.filter {
             now.timeIntervalSince($0.value) < Self.selfWriteMemory
@@ -2281,11 +2435,199 @@ final class Collection: Identifiable {
         }
         if !external.isEmpty {
             MainActorWatchdog.note(
-                "hasExternalChanges PASSED \(external.count)/\(paths.count): "
+                "externalPaths PASSED \(external.count)/\(paths.count): "
                 + external.prefix(4).map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
                 + "  [selfWrites=\(recentSelfWrites.count)]")
         }
-        return !external.isEmpty
+        return external
+    }
+
+    /// Whether any of `paths`, which no recent write of the collection's
+    /// explains, has changed from what the collection last made of it.
+    ///
+    /// A note the collection saved is the bytes it saved: its size and date
+    /// were looked at as the save landed (`savedFingerprints`), and a file
+    /// still showing both was written by nobody since. A file the collection
+    /// shows is unchanged while it has the date and size the picture has. And
+    /// a path that is gone was news only if the collection showed it — the
+    /// atomic save's own temporary file is gone by the time it is heard of.
+    /// Anything else — a folder, a file the collection does not know, a
+    /// look that fails or does not answer in time — is news, and the folder
+    /// is walked as before. Past a handful of paths the walk is the cheaper
+    /// answer anyway.
+    private func anyStillNews(_ paths: [String]) async -> Bool {
+        guard paths.count <= Self.lateLookLimit else { return true }
+        var keys: [(path: String, key: String)] = []
+        for path in paths {
+            guard let key = selfWriteKey(path) else { return true }
+            keys.append((path, key))
+        }
+        let shown = shownByKey()
+        let looks = keys.map { (path: $0.path, known: known(at: $0.key, shown: shown)) }
+        // Each file on its own lane, and the turn waits no longer than the
+        // check's patience: a provider that does not answer is news, never a
+        // turn held for good (§51.72).
+        let calls = newsCalls
+        return await answered(within: Self.lateLookPatience, else: true) {
+            for look in looks {
+                let url = URL(filePath: look.path, directoryHint: .notDirectory)
+                if await calls.onLane(for: url, { Self.isNews(at: look.path, knowing: look.known) }) { return true }
+            }
+            return false
+        }
+    }
+
+    /// Paths looked at one by one before a walk is simply the answer.
+    private static let lateLookLimit = 32
+
+    /// What the collection last made of one path: what it saved there, and
+    /// what its picture shows there.
+    nonisolated struct Known: Sendable {
+        var saved: FileFingerprint?
+        var pictured: FileFingerprint?
+        var isPictured = false
+        /// Whether the picture shows the note as in the cloud only.
+        var onlineOnly: Bool?
+    }
+
+    /// What the picture shows at one place: a note, with its date, size and
+    /// whether it is in the cloud only — or a file or folder.
+    private struct Shown {
+        var fingerprint: FileFingerprint?
+        var onlineOnly: Bool?
+    }
+
+    /// A file's size and modification date, as the folder gives them.
+    nonisolated struct FileFingerprint: Sendable, Equatable {
+        let modified: TimeInterval
+        let size: Int
+
+        func matches(_ other: FileFingerprint) -> Bool {
+            size == other.size && abs(modified - other.modified) < 0.001
+        }
+
+        /// What the file at `url` is now — `nil` for a folder, or for a file
+        /// that is not there or will not say.
+        static func now(at url: URL) -> FileFingerprint? {
+            guard let values = try? FileIO.currentResourceValues(
+                    at: url, keys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey]),
+                  values.isDirectory != true,
+                  let modified = values.contentModificationDate,
+                  let size = values.fileSize else { return nil }
+            return FileFingerprint(modified: modified.timeIntervalSinceReferenceDate, size: size)
+        }
+    }
+
+    private func known(at key: String, shown: [String: Shown]) -> Known {
+        let place = shown[key]
+        return Known(saved: savedFingerprints[key], pictured: place?.fingerprint,
+                     isPictured: place != nil, onlineOnly: place?.onlineOnly)
+    }
+
+    /// What the picture shows, by place in the collection — keyed as an
+    /// event's paths are (`selfWriteKey`), never by spelling. Compared as
+    /// raw paths, a folder drawn from the index cache (`/var/…`) never
+    /// matched an iPhone's root (`/private/var/…`), and a deleted folder was
+    /// taken for one never shown; and each path scanned every note, folder
+    /// and file again (implemented.md §51.72). One pass a picture, kept
+    /// until its notes, files or folders change (`shownCache`): made at every
+    /// event, a burst of them each paid for the whole picture on the main
+    /// actor.
+    private func shownByKey() -> [String: Shown] {
+        if let shownCache { return shownCache }
+        var shown: [String: Shown] = [:]
+        for note in notes {
+            guard let key = selfWriteKey(note.fileURL.path) else { continue }
+            shown[key] = Shown(fingerprint: FileFingerprint(modified: note.lastModified.timeIntervalSinceReferenceDate,
+                                                            size: note.fileSize),
+                               onlineOnly: note.isOnlineOnly)
+        }
+        for url in attachments.map(\.url) + folders {
+            guard let key = selfWriteKey(url.path), shown[key] == nil else { continue }
+            shown[key] = Shown()
+        }
+        shownCache = shown
+        return shown
+    }
+
+    /// `shownByKey`'s map of the picture as it stands; dropped when it changes.
+    @ObservationIgnored private var shownCache: [String: Shown]?
+
+    /// Whether `path` is news, given what the collection made of it. Asked off
+    /// the main actor, on the file's lane among those kept for the check
+    /// (`newsCalls`): a look at the disk, and a question to its provider.
+    private nonisolated static func isNews(at path: String, knowing known: Known) -> Bool {
+        let url = URL(filePath: path, directoryHint: .notDirectory)
+        let values: URLResourceValues
+        do {
+            values = try FileIO.currentResourceValues(
+                at: url, keys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey,
+                                .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
+        } catch {
+            // Gone, news only if the collection showed it; a look that fails
+            // for any other reason says nothing, and that is news.
+            return isMissing(error) ? known.isPictured : true
+        }
+        // A folder's change is the walk's to read, and a file that will not
+        // say what it is cannot be said to be unchanged.
+        guard values.isDirectory != true,
+              let modified = values.contentModificationDate,
+              let size = values.fileSize else { return true }
+        // A download or an eviction leaves the date and the size alone, and
+        // changes what the note can be read for: news, or its cloud badge,
+        // its Download item and search's skip of it stayed (§51.72).
+        let onlineOnly = values.isUbiquitousItem == true && values.ubiquitousItemDownloadingStatus == .notDownloaded
+        if let shown = known.onlineOnly, shown != onlineOnly { return true }
+        let now = FileFingerprint(modified: modified.timeIntervalSinceReferenceDate, size: size)
+        // What the collection saved explains a file only while the picture
+        // still shows it: a note deleted and put back with the bytes it was
+        // saved with is news, or it was never listed again (§51.72).
+        if let saved = known.saved, known.isPictured, saved.matches(now) { return false }
+        if let pictured = known.pictured, pictured.matches(now) { return false }
+        return true
+    }
+
+    private nonisolated static func isMissing(_ error: Error) -> Bool {
+        let error = error as NSError
+        return (error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError)
+            || (error.domain == NSPOSIXErrorDomain && error.code == Int(ENOENT))
+    }
+
+    /// What each note the collection saved was when its save landed, by its
+    /// place in the collection — kept for as long as the collection is open,
+    /// because on iOS the news of a save can come back that much later.
+    @ObservationIgnored private var savedFingerprints: [String: FileFingerprint] = [:]
+
+    /// Look at what `saves` left on disk, in a turn: after every event heard
+    /// before them, and before any heard after. A file of another size than
+    /// the save wrote is someone else's write landing between the save and
+    /// the look, and is left to be news.
+    private func rememberFingerprints(of saves: [(url: URL, size: Int)]) {
+        let saved = saves.compactMap { save in selfWriteKey(save.url.path).map { (save.url, $0, save.size) } }
+        guard !saved.isEmpty else { return }
+        let calls = newsCalls
+        inTurn { [weak self] in
+            // Each file on its own lane, and no longer than the check's
+            // patience: a look that does not answer keeps nothing, and the
+            // save's news, when it comes, is judged as anyone's (§51.72).
+            let found = await answered(within: Self.lateLookPatience, else: []) { () -> [(String, FileFingerprint)] in
+                var found: [(String, FileFingerprint)] = []
+                for (url, key, size) in saved {
+                    guard let now = await calls.onLane(for: url, { FileFingerprint.now(at: url) }),
+                          now.size == size else { continue }
+                    found.append((key, now))
+                }
+                return found
+            }
+            guard let self else { return }
+            for (key, fingerprint) in found { self.savedFingerprints[key] = fingerprint }
+        }
+    }
+
+    /// Forget the recent writes the time window remembers — as a return to
+    /// the app long after them does. For tests.
+    func forgetRecentSelfWrites() {
+        recentSelfWrites = [:]
     }
 
     /// Record that the editor just saved `url`, and refresh the content-derived
@@ -2307,6 +2649,7 @@ final class Collection: Identifiable {
     /// needs AppKit.
     func noteDidSave(_ url: URL, text: String) {
         didSave(url, text: text, note: notes.first(where: { $0.fileURL == url }))
+        rememberFingerprints(of: [(url, text.utf8.count)])
     }
 
     /// Several saves the app made at once — the notes a rename's link rewrite
@@ -2317,6 +2660,7 @@ final class Collection: Identifiable {
         guard !saves.isEmpty else { return }
         let byURL = Dictionary(notes.map { ($0.fileURL, $0) }, uniquingKeysWith: { first, _ in first })
         for save in saves { didSave(save.url, text: save.text, note: byURL[save.url]) }
+        rememberFingerprints(of: saves.map { ($0.url, $0.text.utf8.count) })
     }
 
     /// `noteDidSave`, with the saved note already found — nil when it is not in
@@ -2670,7 +3014,8 @@ final class Collection: Identifiable {
                         fileURL: url,
                         lastModified: Date(),
                         fileSize: 0)
-        notes.removeAll { sameFile($0.fileURL, url) }
+        let isTheNewNote = sameFile(as: url)
+        notes.removeAll { isTheNewNote($0.fileURL) }
         notes.append(note)
         // Same order `ScanAccumulator.sorted` uses, so an inserted note sits
         // exactly where a scan would have put it — newest first.
@@ -2778,6 +3123,7 @@ final class Collection: Identifiable {
         }
 
         bookmarks.updatePath(from: note.fileURL, to: destination)   // keep the pin
+        ReadingPositions.moved(from: note.fileURL, to: destination) // and where it was read (§51.72)
 
         // Which notes actually mention this one — asked *before* adopting, while
         // the graph still keys the note by its old URL.
@@ -2834,7 +3180,8 @@ final class Collection: Identifiable {
                          isOnlineOnly: note.isOnlineOnly)
         // By the file, not the spelling: the walked twin of a note made
         // under another name stayed listed after its rename (`ownSpelling`).
-        notes.removeAll { sameFile($0.fileURL, note.fileURL) || sameFile($0.fileURL, destination) }
+        let left = sameFile(as: note.fileURL), arrived = sameFile(as: destination)
+        notes.removeAll { left($0.fileURL) || arrived($0.fileURL) }
         notes.append(moved)
         notes.sort(by: Note.newestFirst)
         revision &+= 1
@@ -3284,6 +3631,7 @@ final class Collection: Identifiable {
             }
         }
         bookmarks.updatePath(from: itemURL, to: destination)   // keep the pin
+        ReadingPositions.moved(from: itemURL, to: destination) // and where it, or what is in it, was read (§51.72)
         savesToIndex[itemURL] = nil               // see `indexSaved`
         keptSaves[itemURL] = nil                  // and `KeptSave`: read again where it went
         // The editors holding it — or a note inside it — follow it, before

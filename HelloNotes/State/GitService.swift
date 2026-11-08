@@ -47,6 +47,9 @@ final class GitService {
     private(set) var isBusy = false
     /// A push is running, so the pane offers to cancel it (`cancelPush`).
     private(set) var isPushing = false
+    /// A pull is running, and may be waiting on the network as a push can
+    /// (`cancelPull`).
+    private(set) var isPulling = false
     private(set) var lastError: String?
     private(set) var lastMessage: String?
 
@@ -234,7 +237,79 @@ final class GitService {
         pushHandle?.cancel()
     }
 
-    /// Fetch remote refs (SwiftGitX has no merge yet, so this doesn't pull).
+    /// Bring the remote's commits into the collection (`GitPull`): a fetch, then
+    /// a fast-forward — or a merge, when both sides have commits and no part of
+    /// a file changed on both. A conflict, or a change not yet committed that it
+    /// would write over, stops it with nothing changed, and says which file; a
+    /// step that fails once the checkout has written says that instead
+    /// (`partlyWritten`), and the collection is told, as after any pull.
+    ///
+    /// What it brought in reaches the collection as any change from outside
+    /// does (`onWorkingTreeChanged`): the folder walked, a note open and
+    /// untouched reloaded, one holding typing asked about.
+    func pull() async {
+        guard let url = repositoryRoot else { return }
+        let previous = lastQueued
+        let handle = Task { @MainActor [self] in
+            await previous?.value
+            isBusy = true
+            isPulling = true
+            lastError = nil
+            defer { isBusy = false; isPulling = false }
+            // On a thread of its own (`GitThread`): the fetch waits on the
+            // network for as long as it takes (implemented.md §51.66). The
+            // merge commit, if there is one, is signed as a commit made here is.
+            let result: Result<GitPull.Outcome, Error>
+            do {
+                result = .success(try await GitThread.run(GitThread.pull, for: url) { cancel in
+                    if let repository = try? Repository.open(at: url) { Self.ensureCommitIdentity(repository) }
+                    return try GitPull.pull(repositoryAt: url, cancel: cancel)
+                })
+            } catch {
+                result = .failure(error)
+            }
+            switch result {
+            case .success(.upToDate):
+                lastMessage = "Already up to date"
+            case .success(.fastForwarded(let commits)):
+                lastMessage = "Pulled \(Self.commits(commits))"
+                onWorkingTreeChanged?()
+            case .success(.merged(let commits)):
+                lastMessage = "Pulled \(Self.commits(commits)) and merged them with this copy’s"
+                onWorkingTreeChanged?()
+            case .failure(GitPull.Failure.cancelled):
+                lastMessage = GitPull.Failure.cancelled.localizedDescription
+            case .failure(let error):
+                lastError = Self.scrubCredentials(error.localizedDescription)
+                lastMessage = nil
+                // Failed after writing notes — the branch did not move: what
+                // was written is in the folder all the same, and on iOS
+                // nothing but this tells the collection (§51.72).
+                if case GitPull.Failure.partlyWritten = error { onWorkingTreeChanged?() }
+            }
+            await refreshStatusInQueue()
+        }
+        pullHandle = handle
+        lastQueued = Task { _ = await handle.value }
+        await handle.value
+    }
+
+    /// Stop a pull still fetching, at libgit2's next callback.
+    func cancelPull() {
+        pullHandle?.cancel()
+    }
+
+    /// "1 commit", "3 commits".
+    nonisolated static func commits(_ count: Int) -> String {
+        "\(count) commit\(count == 1 ? "" : "s")"
+    }
+
+    /// Told when a pull has changed the working tree — the collection's cue to
+    /// read its folder again. Set by the collection that owns this service.
+    @ObservationIgnored var onWorkingTreeChanged: (@MainActor () -> Void)?
+
+    /// Fetch remote refs — the remote's branch moves inside `.git`; Pull is what
+    /// brings its commits into the notes.
     func fetch() async {
         guard let url = repositoryRoot else { return }
         // On a thread of its own, through `GitFetch`: SwiftGitX's fetch gave
@@ -409,6 +484,7 @@ final class GitService {
     private var cloneHandle: Task<URL?, Never>?
     private var createHandle: Task<URL?, Never>?
     private var pushHandle: Task<Void, Never>?
+    private var pullHandle: Task<Void, Never>?
 
     private func run(success: String, _ operation: @escaping @Sendable () async throws -> Void) async {
         let previous = lastQueued

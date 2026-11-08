@@ -67,7 +67,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - **Both live in one screen** — `File ▸ Open Collection ▸ from Cloud…` opens **Manage Cloud Collections**: the cloud collections you already have (removable, without deleting a thing), the ways to add another, and your accounts. **Several accounts per service** are first-class — a personal *and* a work OneDrive each keep their own credentials, are named whatever you call them, and can each supply as many collections as you like. Which route applies is answered rather than asked: on macOS the app reads the installed provider clients and names them.
 
 **Seamless Git sync**
-- Repo status, init, local commits, opt-in debounced auto-commit (never auto-pushes), user-initiated push/fetch, per-note **version history** (browse & restore), **clone** (cancelable) and **create-remote** with HTTPS token auth, and an in-app git identity.
+- Repo status, init, local commits, opt-in debounced auto-commit (never auto-pushes), user-initiated pull/push/fetch (a pull merges, and a conflict stops it with nothing changed), per-note **version history** (browse & restore), **clone** (cancelable) and **create-remote** with HTTPS token auth, and an in-app git identity.
 
 **Deep system integration**
 - **Siri & Shortcuts** — `NoteEntity` App Intents (open, create, append, search) with an `AppShortcutsProvider`, so notes are scriptable from Shortcuts and callable by voice.

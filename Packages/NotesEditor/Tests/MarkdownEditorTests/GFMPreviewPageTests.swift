@@ -51,7 +51,9 @@ struct GFMPreviewPageTests {
         var loads: [String] = []
         EditorProbe.listener = { line in if line.hasPrefix("load ") { loads.append(line) } }
         defer { EditorProbe.listener = nil }
-        let web = WKWebView()
+        // Sized, as a pane's is by the time a page is loaded into it: a web
+        // view with no size holds its page until it has one (§51.69).
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: 428, height: 650))
         let state = GFMWebLoadState()
 
         GFMWebView.load(web, "<p>one</p>", 1, nil, state)

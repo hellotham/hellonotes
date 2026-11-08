@@ -299,6 +299,29 @@ struct MainActorBudgetTests {
         #expect(cpu < Self.budget, "renaming one note burned \(cpu)s of main-thread CPU")
     }
 
+    /// **A burst of changes heard one file at a time barely touches the main
+    /// actor.** The iOS presenter tells of each file on its own — a return to
+    /// the app, a pull or a copy made on another device — and each event was
+    /// looked at against a map of the whole picture, made again every time,
+    /// on the main actor (implemented.md §51.72). These notes are untouched,
+    /// so each event is looked at and none asks for a walk.
+    @Test func aBurstOfChangesBarelyTouchesTheMainActor() async throws {
+        let root = try makeVault(noteCount: 2_000)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let collection = Collection(rootURL: root)
+        await collection.scanOffMain()
+        let paths = collection.notes.prefix(100).map(\.fileURL.path)
+        try #require(paths.count == 100)
+        let asked = collection.walksAskedFor
+
+        let cpu = await mainThreadCPU {
+            for path in paths { await collection.receive(.itemsChanged([path])) {}.value }
+        }
+        print("BUDGET 100 changes heard one at a time(2000): main-thread CPU \(cpu)s")
+        #expect(collection.walksAskedFor == asked, "an untouched note was news, so this measures a walk's asking")
+        #expect(cpu < Self.budget, "a burst of 100 changes burned \(cpu)s of main-thread CPU")
+    }
+
     /// A 2 MB note open in an editor, and the editor's copy of it with a line
     /// typed — made the way the editor makes it, from a text storage, so it is
     /// the bridged `NSString` a save is really handed.

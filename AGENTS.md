@@ -324,6 +324,16 @@
   `Trash.item` asks for the system Trash (implemented.md §51.65). Never empty
   the person's Trash to tidy up after a run: it is theirs, and emptying it is
   for good.
+- **And so are the preferences the app writes on its own.** A test hands a
+  store it makes a `ScratchDefaults` suite; a store the app writes as a side
+  effect of what a test drives — an editor keeping its reading place as it
+  is left — wrote the person's: 32 tests' notes were in their
+  `readingPositions`, every entry there, before a count showed it
+  (implemented.md §51.72). Such a store takes one of the run's own in a test
+  host (`ReadingPositions.store`, named by a path in the host's temporary
+  folder, as `Trash.testBin` is). After a run that touched one, count what is
+  there — `defaults export com.hellotham.HelloNotes - | plutil -convert
+  binary1 -o - -`, by key and by count, never a value printed.
 - **Read every summary a command prints.** The iOS editor suite emits **three**
   bundle lines (18/4, 173/13, 196/13); `tail -3` shows the last one, and
   reporting "196 of 383 tests ran" from it invented a coverage hole that did not
@@ -367,10 +377,14 @@
   the way no walked note is — a note made there had two identities, and its
   rename left the walked one listed (implemented.md §51.56). Anything a
   collection is handed goes through `Collection.ownSpelling(of:)`, and
-  "the same file" is `sameFile`, by relative path — never
-  `standardizedFileURL`, which answers for a file that has just gone the
-  other way round. The Mac and the simulator cannot show any of this; a root
-  reached through a symlink can (`SymlinkedRootTests`).
+  "the same file" is `sameFile(as:)`, by place as text against
+  `rootSpellings` — never `standardizedFileURL`, which answers for a file
+  that has just gone the other way round, and never
+  `CollectionIndexCache.relativePath` once a note, which looks the root up on
+  the disk at every call: 0.17 s of main thread to make a note in a
+  collection of 2,000 and 0.30 s to rename one, in 1.3.5 (§51.72). The Mac
+  and the simulator cannot show any of this; a root reached through a
+  symlink can (`SymlinkedRootTests`).
 - **`contentsOfDirectory(at:)` refuses a symlink at the end of a path** with
   ENOTDIR; `contentsOfDirectory(atPath:)` follows it. `Collection.unavailability`
   uses the second, so a vault reached through a symlink passed every health check
@@ -568,6 +582,73 @@
   clicking Approve in the Assistant's window ends editing in the note's window,
   which saves typing the diff never showed. And never read a note as `?? ""` on
   a path that shows or replaces it — an unreadable note is not an empty one.
+- **On iOS the news of a write can come back hours later, so a write is known
+  by what it left, never by when.** A suspended app hears nothing, and on its
+  return the folder's presenter hands it everything at once — the save it made
+  on its way out among it. The 12-second window that recognises the
+  collection's own writes had long closed, so every return to the app walked
+  the vault. Each save's size and date are looked at as it lands
+  (`rememberFingerprints`), and news nothing explains is looked at before it
+  is walked (`anyStillNews`, implemented.md §51.69). And **a walk that checks
+  what is already on screen says nothing**: progress is for work someone is
+  waiting for, and "Scanning …" over usable notes at every launch read as the
+  app doing it again and again — unless someone asked (Rescan, Refresh). A
+  check that skips a walk is only as good as what it compares, and four
+  things slipped past the first one (§51.72): a deletion is heard *before*
+  it is made (`itemsDeleting`, judged by what the collection shows — the
+  file is still on disk); a saved fingerprint explains a file only while the
+  picture shows it; the picture is looked up by place (`selfWriteKey`),
+  never by spelling; and a download or eviction changes `isOnlineOnly`, not
+  the date or size — which the picture's own signature now counts too. **And
+  the check must never hold a turn**: it asked the provider about each file
+  on the root lane, in the event's turn, with no deadline, so one file its
+  provider would not answer about held every turn after it, Try Again among
+  them. Each file is asked on lanes kept for the check (`newsCalls`), the
+  turn waits `lateLookPatience` at most (`answered(within:else:)`) and no
+  answer is news; an event heard while a walk is coming is not looked at;
+  and the map of what the collection shows is made once a picture
+  (`shownCache`) — made at every event, a burst of a hundred cost half a
+  second of main thread (§51.72).
+- **The app's container moves, so nothing is kept by an absolute path inside
+  it.** An iOS app's data container is a folder named by a UUID: the
+  simulator gives it a new one at every install (measured), and a device may
+  at an update (not measured — say so, never assume either way). A bookmark
+  follows the move; a path does not. Six things were kept by a collection's
+  absolute path and lost to a move: the index cache (a full walk), every
+  reading position, the Assistant's conversation, the declined links, a
+  walk's resume point — and a cloud collection's cache, looked for only where
+  it had been kept, so the collection was left out and the next save of the
+  open list dropped it for good. Name a path by `ContainerPath.stableName`
+  (`~/…` inside the container), give a store its place through
+  `ContainerMoves.place`, which moves there what the path's former names kept,
+  and look for anything kept by an absolute path in today's container too
+  (`RemoteMirror.cacheRoots`). What the container used to be called is learnt
+  at launch from the open list's last paths, before they are written again
+  (`ContainerMoves.learn`, implemented.md §51.70) — and only a UUID-named
+  container is taken for one, so an unsandboxed home never is. **A path
+  something kept to find a place again is looked for by place**
+  (`ContainerPath.placeName`, `index(of:in:)`): Open Recent listed the sample
+  collection twenty-one times, one an install, and a window's last note,
+  collection, open folders and sidebar place, all scene storage, were lost
+  at every move (§51.71); a bookmark follows its folder, so Open Recent's
+  are what tidy the entries no learnt name explains. A setting kept per
+  collection under a key that names its path — the notes it pinned, whether
+  it shows files that are not notes — is keyed by `ContainerMoves.key` and
+  moved from its old key at launch (`adoptKey`, §51.72). Read the simulator's
+  container afresh after every install (`get_app_container`).
+- **The launch writes nothing back until everything it restores is back.**
+  `persist()` writes the open lists from the collections open at that
+  moment, and a re-minted bookmark persisted before the cloud collections
+  were restored wrote their list empty, just before it was read: every
+  cloud collection dropped for good (implemented.md §51.72). Read every list
+  first, and write only once all of it is back — and a write asked for
+  while the restore runs, an Open Recent or a Close from the menu bar under
+  the splash, is owed until it ends (`persistOwed`). The restore runs once,
+  whoever asks: a second window's, run alongside, came back before the
+  library was read and settled the launch. And judge nothing about a
+  window's place while the launch is still bringing collections back — a
+  cloud collection comes back after the local ones, and its window was put
+  on the Library place at every launch.
 - **Anything the app makes, moves or deletes in a cloud collection's cache is
   reported to the mirror, which takes it to the provider in turn.** A cloud
   collection is a cache of a provider's folder, and `RemoteMirror`'s manifest is
@@ -953,6 +1034,14 @@
   `PointerPresence` reports a pointer, and what reads it — the graph's "Tap" or
   "Click" — says the pointer's word until the next launch. Row heights are
   fixed and do not follow it (implemented.md §51.36).
+- **And its drags let go with speed.** A `touch_path` that ends on a held
+  stop still flings: a 500-point drag moved Preview 1,000 points, half of it
+  after the finger lifted, and a picture taken at once was of a page still
+  moving — read as a restore landing 426 points wrong, and "fixed" (the
+  hold in `GFMWebView.load`, which stayed for a reason of its own;
+  implemented.md §51.69). Take the "before" picture once the page has
+  stopped: its last scroll report (`HN_PREVIEW_LOG`), or a second look that
+  matches the first.
 - **One model, and the framework's knobs — no roles, no inventions.** There was
   a model for the Assistant and another for the writing tools; with MLX they
   could not even differ, since the store ran one MLX model, so picking one
@@ -1100,6 +1189,16 @@
   pending change in the collection with it. It commits its own note now,
   whatever Auto-commit's switch says — the person approved that change, and a
   commit of its own is how it is taken back.
+- **libgit2 writes past file coordination, so no presenter hears it.** A pull
+  that changes the working tree says so itself (`GitService.onWorkingTreeChanged`),
+  and the collection reads its folder and tells the open notes — before Git's
+  status, which queues behind whatever Git does next, a push after the pull
+  (§51.72); on iOS nothing else would. Anything else in Git that writes notes — a checkout, a reset, a
+  stash — does the same. And a pull refuses before it writes: the merge is
+  worked out in memory, the checkout is `GIT_CHECKOUT_SAFE`, and only then
+  does the branch move (`GitPull`, implemented.md §51.69) — and a step that
+  fails once the checkout has written says so (`partlyWritten`), and the
+  collection is told (§51.72).
 - **What a line says about privacy is true of the feature it is printed on,
   not of a part of it.** "Runs on this device. Your notes never leave it." was
   true of the model and printed on an Assistant that searches the web with

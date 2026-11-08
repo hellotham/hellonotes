@@ -29,10 +29,15 @@ final class BookmarksStore {
 
     /// Point the store at a collection and load its saved bookmarks.
     /// `standardizedPath` and `spellings` are the root's, from its identity;
-    /// without them they are worked out here.
+    /// without them they are worked out here. Keyed by the root's stable
+    /// name, with what was kept under its absolute path moved there first: a
+    /// move of the app's container emptied the pins of every collection
+    /// inside it (implemented.md §51.72).
     func load(rootURL: URL?, standardizedPath: String? = nil, spellings: [String]? = nil) {
         self.rootURL = rootURL
-        storageKey = (standardizedPath ?? rootURL?.standardizedFileURL.path).map { "bookmarks:" + $0 }
+        storageKey = (standardizedPath ?? rootURL?.standardizedFileURL.path).map {
+            ContainerMoves.adoptKey("bookmarks:", for: $0)
+        }
         rootSpellings = spellings ?? rootURL.map(CollectionIndexCache.rootPrefixes) ?? []
         guard let storageKey else { paths = []; return }
         paths = UserDefaults.standard.stringArray(forKey: storageKey) ?? []

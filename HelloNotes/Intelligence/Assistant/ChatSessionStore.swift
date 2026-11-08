@@ -5,7 +5,10 @@
 //  Created by Chris Tham on 12/7/2026.
 //
 //  Keeps a collection's Assistant conversation across launches, under
-//  Application Support and keyed by the collection's path.
+//  Application Support and keyed by the collection's path — its stable name,
+//  `~/…` inside the app's container, which moves (`ContainerMoves`,
+//  implemented.md §51.70). Keyed by the absolute path, a move left the
+//  conversation under a name nothing asked for.
 //
 //  The conversation is stored as a Foundation Models `Transcript` — prompts,
 //  responses, tool calls and their results — which is `Codable` and is exactly
@@ -19,7 +22,6 @@
 //
 
 import Foundation
-import CryptoKit
 import FoundationModels
 
 @MainActor
@@ -61,13 +63,21 @@ final class ChatSessionStore {
     /// conversation stays in memory for the run — so this warns rather than throws.
     var onPersistenceError: (@Sendable @MainActor (String) -> Void)?
 
-    init(collectionURL: URL?, baseDirectory: URL? = nil) {
+    /// The conversation kept for `collectionURL` — and a conversation kept
+    /// under the collection's former name, its absolute path, moved to its
+    /// stable one first (`ContainerMoves.place`): the name it was kept under
+    /// to 1.3.5, in the container as it is called today or as it was called
+    /// before (`names`).
+    init(collectionURL: URL?, baseDirectory: URL? = nil, names: ContainerNames = .now) {
         let support = baseDirectory
             ?? (try? FileManager.default.url(for: .applicationSupportDirectory,
                                              in: .userDomainMask, appropriateFor: nil, create: true))
             ?? FileManager.default.temporaryDirectory
-        let key = collectionURL.map { Self.hash($0.standardizedFileURL.path) } ?? "no-collection"
-        directory = support.appendingPathComponent("HelloNotes/chats/\(key)", isDirectory: true)
+        let chats = support.appendingPathComponent("HelloNotes/chats", isDirectory: true)
+        directory = collectionURL.map {
+            ContainerMoves.place(for: $0.path, in: chats, isDirectory: true, names: names,
+                                 named: ContainerMoves.digest)
+        } ?? chats.appendingPathComponent("no-collection", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     }
 
@@ -198,11 +208,6 @@ final class ChatSessionStore {
             if case .instructions = $0 { return false }
             return true
         }
-    }
-
-    private static func hash(_ string: String) -> String {
-        let digest = SHA256.hash(data: Data(string.utf8))
-        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }
 

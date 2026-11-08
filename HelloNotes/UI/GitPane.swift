@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 22/8/2026.
 //
-//  Branch, change count, Commit, Push, Fetch, Initialize, auto-commit — the
+//  Branch, change count, Commit, Pull, Push, Fetch, Initialize, auto-commit — the
 //  whole of the app's Git surface, and **the iPad had none of it.**
 //
 //  It was 118 lines inside `MacContentView`, presented from a popover on the
@@ -46,13 +46,13 @@ struct GitPane: View {
             Text("GIT").font(Chrome.Style.caption2).foregroundStyle(Chrome.Colour.secondaryLabel)
             Spacer()
             if git.isBusy { ProgressView().controlSize(.small) }
-            // A push can wait on the network for as long as the network
-            // likes; Clone and Create have always had a way out, and this is
-            // Push's (`GitService.cancelPush`).
-            if git.isPushing {
-                Button("Stop") { git.cancelPush() }
+            // A push or a pull can wait on the network for as long as the
+            // network likes; Clone and Create have always had a way out, and
+            // this is theirs (`GitService.cancelPush`, `cancelPull`).
+            if git.isPushing || git.isPulling {
+                Button("Stop") { git.isPushing ? git.cancelPush() : git.cancelPull() }
                     .buttonStyle(ChromeBorderlessStyle())
-                    .help("Stop pushing")
+                    .help(git.isPushing ? "Stop pushing" : "Stop pulling")
             }
             Button(action: showSettings) {
                 Image(systemName: "gearshape")
@@ -119,6 +119,7 @@ struct GitPane: View {
                     // `Menu`'s face is the platform's. What drops from it is
                     // still the OS's menu.
                     ChromePullDown("Sync", systemImage: "arrow.triangle.2.circlepath") {
+                        Button("Pull") { Task { await git.pull() } }
                         Button("Push") { Task { await git.push() } }
                         Button("Fetch") { Task { await git.fetch() } }
                     }

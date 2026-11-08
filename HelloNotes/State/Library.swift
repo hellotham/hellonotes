@@ -686,10 +686,42 @@ final class Library {
     private static let legacyKey = "vaultBookmark"
 
     /// Reopen the collections that were open at last quit. Call once at launch.
+    ///
+    /// Once, whoever asks: each window's launch asks while the library is
+    /// empty, and a second window's restore, run alongside the first, found
+    /// everything already back and settled the launch while the first was
+    /// still reading the collections — a link that launched the app was tried
+    /// against collections not yet read, and dropped (implemented.md §51.72).
+    /// A second caller waits for the first.
     func restore() async {
+        if let restoring { return await restoring.value }
+        let restoring = Task { await self.restoreWhatWasOpen() }
+        self.restoring = restoring
+        await restoring.value
+        self.restoring = nil
+    }
+
+    @ObservationIgnored private var restoring: Task<Void, Never>?
+    /// Whether the launch is still bringing back what was open, and whether
+    /// the open lists were asked to be written meanwhile (`persist`).
+    @ObservationIgnored private var isRestoring = false
+    @ObservationIgnored private var persistOwed = false
+
+    private func restoreWhatWasOpen() async {
+        isRestoring = true
+        defer {
+            isRestoring = false
+            if persistOwed { persistOwed = false; persist() }
+        }
         let store = defaults
         var datas = (store.array(forKey: Self.bookmarksKey) as? [Data]) ?? []
         var paths = (store.array(forKey: Self.pathsKey) as? [String]) ?? []
+        // Read before anything below writes the list: `persist()` rewrites it
+        // from the collections open at the time, and a re-minted bookmark
+        // persisted before the cloud collections were back emptied it — every
+        // cloud collection dropped for good, with what it had not yet sent
+        // (implemented.md §51.72).
+        let caches = (store.array(forKey: Self.remoteCachesKey) as? [String]) ?? []
 
         // Migrate a single legacy vault bookmark into the new list.
         if datas.isEmpty, let legacy = store.data(forKey: Self.legacyKey) {
@@ -744,6 +776,14 @@ final class Library {
         for (index, data) in datas.enumerated() {
             guard let found = foundFolders[index] else { continue }
             if !found.isDead, found.refreshed != nil { refreshedBookmarks = true }
+            // The folder's last path is the container's name when it was
+            // kept: if the container has moved since, what the app kept for
+            // a collection inside it under that name is found by it
+            // (`ContainerMoves`). Only now can it be learnt — the list is
+            // written again with today's paths below.
+            if !found.isDead, index < paths.count {
+                ContainerMoves.learn(from: paths[index], now: found.url.path, in: store)
+            }
 
             if found.isDead {
                 // The bookmark is dead — the folder is gone, or its volume is.
@@ -777,9 +817,14 @@ final class Library {
             restored.append(collection)
         }
 
-        // A re-minted bookmark is only useful once it is written back.
+        await restoreRemoteCollections(caches)
+        // A re-minted bookmark is only useful once it is written back — and
+        // only once the cloud collections are open again, or the list of them
+        // is written empty: owed, and written as the restore ends.
         if refreshedBookmarks { persist() }
-        await restoreRemoteCollections()
+        // Closed while the cloud collections came back — from the menu bar,
+        // under the splash: not watched, recorded or focused (§51.72).
+        restored.removeAll { collection in !collections.contains { $0 === collection } }
         guard !restored.isEmpty else { return }
 
         let externalChange: @MainActor () -> Void = { [weak self] in self?.collectionChangedOnDisk() }
@@ -792,7 +837,8 @@ final class Library {
         }
 
         // Focus the last restored collection and persist once, matching the
-        // serial version's end state.
+        // serial version's end state — of those still open.
+        restored.removeAll { collection in !collections.contains { $0 === collection } }
         focusedID = restored.last?.id ?? focusedID
         for collection in restored { onOpened(collection.rootURL) }
         persist()
@@ -804,6 +850,12 @@ final class Library {
         // collection the person actually has open. It saves nothing instead —
         // which is also why nothing has to be put back afterwards.
         guard !CaptureSession.isActive else { return }
+        // Asked while the launch is still bringing collections back — Open
+        // Recent, Close or Try Again, chosen from the menu bar under the
+        // splash — the lists would leave out what is not back yet, and a
+        // library of cloud collections alone was not written again before a
+        // quit: owed, and written once the restore ends (§51.72).
+        guard !isRestoring else { persistOwed = true; return }
         // Keep the two arrays index-aligned, and keep an *unavailable*
         // collection's existing bookmark rather than trying to re-mint one from
         // a folder that isn't there — re-minting would fail and quietly drop it,
@@ -847,14 +899,27 @@ final class Library {
     /// collection comes back **instantly from cache** and then asks the provider
     /// what has changed. The alternative was making the user reconnect every
     /// session to see notes that were already on disk.
-    private func restoreRemoteCollections() async {
-        let caches = (defaults.array(forKey: Self.remoteCachesKey) as? [String]) ?? []
+    private func restoreRemoteCollections(_ caches: [String]) async {
         for path in caches {
-            let cacheRoot = URL(fileURLWithPath: path, isDirectory: true)
+            // Where the cache was kept, or — the app's container having moved
+            // since — the same provider and folder in today's
+            // (`RemoteMirror.cacheRoots`): looked for only where it was kept,
+            // a moved container's cache was not found, and the next save of
+            // the list dropped the collection for good (implemented.md §51.70).
+            let roots = RemoteMirror.cacheRoots(kept: path)
             // Read and decoded off the main actor — a manifest is a record per
             // file in the account's folder — and handed to the mirror, which
             // decoded it again at its first use (implemented.md §51.36).
-            guard let manifest = await offMain({ RemoteManifest.load(fromCacheRoot: cacheRoot) }) else { continue }
+            guard let (cacheRoot, manifest) = await offMain({ () -> (URL, RemoteManifest)? in
+                for root in roots {
+                    if let manifest = RemoteManifest.load(fromCacheRoot: root) { return (root, manifest) }
+                }
+                return nil
+            }) else { continue }
+            if cacheRoot != roots.first {
+                MainActorWatchdog.note("restore — cloud cache \(cacheRoot.lastPathComponent) found in today's container, not where it was kept")
+                ContainerMoves.learn(from: path, now: cacheRoot.path, in: defaults)
+            }
             // No account recorded means no way to know whose credentials this
             // needs, so it cannot be rebuilt — better an absent collection than
             // one silently signed in as somebody else.
@@ -880,7 +945,7 @@ final class Library {
 
             // Then reconcile in the background — the cached notes are already on
             // screen, so a slow provider costs nothing but freshness.
-            Task { [weak collection] in await collection?.refreshFromProvider() }
+            Task { [weak collection] in await collection?.refreshFromProvider(announcing: false) }
         }
     }
 

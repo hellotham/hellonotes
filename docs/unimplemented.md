@@ -214,8 +214,7 @@ decisions are not:
 
 ## 8 · Git / sync
 
-- ⬆️ **Pull / merge** — SwiftGitX exposes `fetch` and `push` but no merge; there is no true "pull." **Unblock:** a merge API in SwiftGitX (or a libgit2 merge of our own).
-- 🟠 **Merge-conflict resolution UI** — depends on merge existing first.
+- 🟠 **Merge-conflict resolution UI** — Pull merges in memory and stops, changing nothing, when a file changed on both sides (`GitPull`, implemented.md §51.69); resolving such a pull in the app is still to do. (Pull itself shipped in §51.69 — a libgit2 merge of our own.)
 - 🟠 **Push smoke test** — HTTPS-token push against a real remote deserves one manual smoke test on a fresh machine before it's advertised; SSH remotes still rely on libgit2's ambient credentials.
 
 ---
@@ -487,8 +486,8 @@ repo's first push, so nothing has ever leaked. Local developer key files are the
 owner's own business and are not tracked here.
 
 **Remaining, non-blocking:** the residual 🟡 items under each section above, and the
-feature backlog — **§6/§7 the iOS live-editor milestone (`editor-M5`)**, §8 git pull/merge
-(upstream), §9 HIG polish, §10 localization, §11 tech-debt tidy-ups, §12 test coverage.
+feature backlog — **§6/§7 the iOS live-editor milestone (`editor-M5`)**, §8 merge-conflict
+resolution, §9 HIG polish, §10 localization, §11 tech-debt tidy-ups, §12 test coverage.
 None block the macOS 1.0 release.
 
 A post-review fix pass (2026-07-19) resolved the blocker and most should-fix items from
@@ -521,7 +520,7 @@ text size — which only a code read surfaced.
 - **Localization** (§10) — app-wide, not a point release.
 - **SSRF IP-pinning** (§2) — needs a custom `URLProtocol`; a security change
   deserves its own scrutiny, not a release-day drive-by.
-- **Git pull/merge** (§8) — blocked upstream in SwiftGitX.
+- **Git merge-conflict resolution** (§8) — Pull shipped (§51.69) and refuses a conflicted merge; resolving one in the app is the rest.
 - **The iOS AI ports** (§7) — four new views.
 - **Column widths remembered per window** (§6b decision 4) — the *behaviour*
   already works via the system's own split-view state restoration (the autosaved

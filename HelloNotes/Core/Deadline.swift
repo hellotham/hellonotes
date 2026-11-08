@@ -81,3 +81,27 @@ func finishes(within patience: Duration, _ work: @escaping @MainActor () async -
         answer.give(false)
     }
 }
+
+/// Run `work` off the main actor — its questions to a file provider on lanes
+/// it names — and wait for its answer no longer than `patience`: `fallback`
+/// if none has come by then.
+///
+/// Past the deadline it goes on, unwaited for, as `finishes(within:)`'s work
+/// does, and its answer is dropped. The collection's check on late news asks
+/// a provider about each changed file inside the event's turn, and a provider
+/// that never answered held that turn and every one after it (implemented.md
+/// §51.72). Cancelling the wait stops the waiting, not the work. The deadline
+/// is kept on a queue of its own (`FileIO.deadlines`).
+nonisolated func answered<T: Sendable>(within patience: Duration, else fallback: T,
+                                       _ work: @escaping @concurrent @Sendable () async -> T) async -> T {
+    let given = OneAnswer<T>()
+    return await withTaskCancellationHandler {
+        await withCheckedContinuation { continuation in
+            guard given.expect(continuation) else { return }
+            Task { given.give(await offMainAwaiting(work)) }
+            FileIO.deadlines.asyncAfter(deadline: .now() + patience.dispatchInterval) { given.give(fallback) }
+        }
+    } onCancel: {
+        given.give(fallback)
+    }
+}

@@ -21,15 +21,14 @@
 //
 
 import Foundation
-import CryptoKit
 
 /// The set of proposals a user has said "never" to, for one collection.
 nonisolated final class DeclinedLinkStore {
     private var keys: Set<String>
     private let fileURL: URL
 
-    init(collectionRoot: URL) {
-        fileURL = Self.storeURL(for: collectionRoot)
+    init(collectionRoot: URL, folder: URL? = nil, names: ContainerNames = .now) {
+        fileURL = Self.storeURL(for: collectionRoot, in: folder ?? Self.folder, names: names)
         keys = Self.load(from: fileURL)
     }
 
@@ -72,13 +71,20 @@ nonisolated final class DeclinedLinkStore {
     }
 
     /// `Application Support/HelloNotes/DeclinedLinks/<hash>.json`, keyed by the
-    /// collection root — the same scheme as `CollectionIndexCache`.
-    static func storeURL(for rootURL: URL) -> URL {
-        let base = (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-                    ?? FileManager.default.temporaryDirectory)
+    /// collection root — the same scheme as `CollectionIndexCache`: the root's
+    /// stable name, with a list kept under its absolute path to 1.3.5 moved
+    /// there first (`ContainerMoves`). Keyed by the absolute path, a move of
+    /// the app's container brought back every link the person had declined.
+    static func storeURL(for rootURL: URL, in folder: URL = DeclinedLinkStore.folder,
+                         names: ContainerNames = .now) -> URL {
+        ContainerMoves.place(for: rootURL.path, in: folder, names: names) {
+            "\(ContainerMoves.digest($0)).json"
+        }
+    }
+
+    static var folder: URL {
+        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+         ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("HelloNotes/DeclinedLinks", isDirectory: true)
-        let digest = SHA256.hash(data: Data(rootURL.standardizedFileURL.path.utf8))
-        let name = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
-        return base.appendingPathComponent("\(name).json")
     }
 }

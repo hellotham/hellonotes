@@ -8416,6 +8416,633 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.72 The review of §51.69–§51.71, and what it found (2026-11-08)
+
+`/code-review max --fix` over the uncommitted tree — §51.69's reading
+places, quiet returns and Pull, and §51.70–§51.71's container moves — at the
+person's word. Ten finders and five verifiers: twenty-three candidates, two
+refuted, twenty-one kept. The fifteen most severe were reported and all
+fifteen fixed, and five of the other six with them. One more was found while
+the fixes were being checked, in this work's own tests.
+
+**The launch, and what it keeps**
+
+- **A bookmark minted again dropped every cloud collection.** `restore()`
+  wrote a stale local bookmark back (`persist()`) before the cloud
+  collections were restored, and `persist()` writes both open lists from what
+  is open at that moment: the list of cloud collections was written empty
+  just before it was read. A local folder renamed or moved since the last
+  launch was enough, and the collection was gone for good, with whatever its
+  cache had not yet sent. The list is read first, and nothing is written
+  until everything is back.
+- **A window standing in a cloud collection opened on the Library place at
+  every launch**, container move or none. Local collections come back
+  before cloud ones and the focus last, and the handler that lands a first
+  collection saw the count go from none to some without the window's own and
+  chose the Library place, which nothing then left. Nothing about a window's
+  place is judged until the launch has settled (`library.hasSettled`), and
+  then once (`RailPlaceStorage.keeping`).
+- **Pinned notes, and whether a collection shows files that are not notes,
+  were kept under its absolute path** — two that §51.70's inventory, which
+  said nothing path-keyed was left, had missed. Each is keyed by the
+  container's stable name now (`ContainerMoves.key`) and moved from an
+  earlier name's key as the collection opens (`adoptKey`).
+- **Open Recent: one window's tidy wrote its copy of the list over what
+  another window had just recorded** — each window has a store of its own.
+  `record` and `tidy` read the list as it is kept first, and `tidy` again
+  after its await.
+
+**The check on late news (§51.69)**
+
+- **A deletion is heard before it is made.** A presenter's
+  `accommodatePresentedSubitemDeletion` lets the deleter go at once, and the
+  check looked at the disk inside the event: the file still there,
+  unchanged, so no walk, and a note deleted on another device stayed listed.
+  It is an event of its own now (`DirectoryEvent.itemsDeleting`), judged by
+  what the collection shows, never by the disk.
+- **A fingerprint saved this session explained a file the picture no longer
+  showed** — a note deleted and put back with its size and date was not
+  news. It explains one only while the picture shows it (`isPictured`).
+- **The picture was looked up by spelling.** On an iPhone, folders built from
+  the index cache are spelled `/var/…` and the root `/private/var/…`, so a
+  pictured folder was never found and its deletion was not news. One pass
+  over the notes, attachments and folders, keyed by place (`shownByKey`,
+  `selfWriteKey`), replaced the look-ups — and their cost of every path
+  times every note.
+- **A download or an eviction changes neither size nor date**, so it was
+  not news: the online-only badge, Download and search's look at a note's
+  text waited for an unrelated walk, and the picture's own signature ignored
+  the change too. The check reads the ubiquity keys, and the signature
+  counts `isOnlineOnly`.
+- A collection closed while the disk was being looked at drops the verdict,
+  as `.rootChanged` already did. Refresh Cloud Collection, which someone
+  asked for, shows its walk and its Stop again; the launch's own refresh
+  stays quiet.
+
+**Reading places (§51.69)**
+
+- **On iOS a kept place undid every heading jump** — the Outline and
+  `[[Note#Heading]]` looked dead until the reader dragged — because the
+  standing place was stood again at every layout. A jump goes through
+  `showAtTop`, on both platforms: the jump becomes the standing place, or the
+  pending one before the first layout.
+- **…and every scroll that was not a drag** — VoiceOver's three-finger
+  scroll, an accessibility focus. iOS has the Mac's `clipMoved` now:
+  `offsetMoved`, from `scrollViewDidScroll`, ends the standing place at a
+  scroll the view did not make.
+- **A place past the end of a note shortened elsewhere was never stood**,
+  and the bad place was kept again. It is clamped to the last line
+  (`clampedPlace`).
+- **A document reused from the editor's cache** — one per text size and
+  appearance — brought back the place it held when it was last shown: a size
+  changed and changed back put the reader where they had been, and the next
+  keep wrote that over where they were. It is given the kept place, as a new
+  one is.
+- **⌘Q kept nothing on the Mac**, which runs no `scenePhase` change and no
+  `onDisappear` then. The editor keeps its place in its flush (`willFlush`,
+  which the termination drain runs), and Preview's place registers with
+  `TerminationGuard`.
+- **Preview credited a note with the page before it**: during a fling's
+  momentum the old page's reports were tagged with the new note. A report
+  names the note its page was built for (`Page.note`).
+- **A rename or a move dropped a note's places** — kept by path. They move
+  with it, for a note and for everything in a folder
+  (`ReadingPositions.moved`).
+- A capture session reads no place, as it already wrote none.
+
+**Pull (§51.69)**
+
+- **Stop while fetching showed libgit2's "Cancelled." as a failure.** It is
+  the pull's own cancel now (`Failure.cancelled`).
+- **A pull that failed after its checkout** — a leftover
+  `refs/heads/<branch>.lock`, a commit made outside meanwhile — left
+  rewritten notes nobody was told about. Whatever fails after the checkout
+  fails as `partlyWritten`, which says the files are in the folder,
+  uncommitted, and tells the collection, as a pull that succeeds does.
+- **And the docs promised more than the code.** The website's Git page, the
+  bundled manual and three comments said a pull happens whole or changes
+  nothing, and that any note changed on both sides stops it. libgit2 merges
+  changes to different parts of a note, and a step after the checkout can
+  fail (`partlyWritten`): they say so now, and Settings asks for an account
+  "to pull, push and fetch". Found by a fact-check of the docs before the
+  release, which read libgit2's merge as the app builds it.
+
+**And the tests wrote the person's preferences.** Found while this entry's
+controls were being written: an editor keeps its place as it is left, and
+the hosted suite opens notes in editors, so the person's `readingPositions`
+held the places of 32 tests' notes — every entry there. In a test host the
+places are kept in a store of the run's own, a plist named by a path in the
+host's temporary folder (`ReadingPositions.store`), as the test Trash is
+(§51.65). The key was backed up and removed, the other 51 untouched, and no
+run since has written it.
+
+**Before the release.** Asked whether anything else needed fixing first,
+the gates this work had not been through were run, and what they found was
+fixed.
+
+- **Making a note took 0.173 s of main thread in a collection of 2,000, and
+  renaming one 0.305 s**, against the budget suite's 0.1 — last run on
+  9 October; naming a new note is a rename. Since build 35, so in 1.3.5:
+  `sameFile` asked `CollectionIndexCache.relativePath`, which looks the
+  root up on the disk (`resolvingSymlinksInPath`) at every call, once for
+  every note in the list and twice on a rename — 553 of `createNote`'s 625
+  samples and 1,099 of `renameNote`'s 1,169, in a sample of the test host.
+  `sameFile(as:)` works the one URL's place out once and each note's by text
+  against `rootSpellings`, as `selfWriteKey` does: 0.025 s and 0.030 s. A
+  walk's landing asked the disk the same way of every item on an iPhone,
+  where every path is `/private/var/…` — twice an item (`signature`), and
+  again for what a partial walk could not see (`applyMerging`): by text now.
+- **One file its provider would not answer about held every turn after it**
+  — the vault-I/O review, its first look at this work. The check on late
+  news asked about each changed file — its size, its date, and since this
+  entry whether it is downloaded, a question to its provider — on the
+  collection's root lane, in the event's turn, with no deadline: an unmount,
+  Try Again and the launch's look at a dead bookmark all waited behind it.
+  Each file is asked on a lane of its own among sixteen kept for the check
+  (`newsCalls`), and the turn waits no longer than two seconds
+  (`answered(within:else:)`, beside `finishes(within:)`): no answer is news,
+  and the folder is walked as it was before the check. The look at what a
+  save left goes the same way.
+- **A burst of events each paid for the whole picture** — the concurrency
+  review. The iOS presenter tells of each file on its own, and every event
+  built a map of the collection on the main actor; in a burst of news,
+  every event after the first was looked at too, though a walk was already
+  coming. The map is kept until the picture changes, and an event heard
+  while a walk is coming is that walk's to read: a hundred events against
+  2,000 notes cost 0.011 s of main thread (0.546 s with the map made each
+  time).
+- **A pull's notes reached the open editors only after Git's status**, which
+  waits behind whatever Git does next — a push after the pull: the notes
+  showed what the pull had replaced, and typing into one ended in a
+  conflict. The editors are told first.
+- **The launch, again.** A second window's restore, run alongside the first,
+  came back before the library was read and settled the launch for its
+  window, so a link that launched the app was tried against notes not yet
+  read: it waits for the first now. Open Recent, Close or Try Again chosen
+  during the launch wrote the open lists without what was not back yet, and
+  a library of cloud collections alone was not written again before a quit:
+  owed now, and written as the restore ends. A collection closed during the
+  launch was still watched, recorded and focused.
+- **Open Recent and a rename.** A window's Remove wrote its copy of the list
+  over another window's, and recording a collection asked the disk on the
+  main actor at every open — a bookmark minted, the folder looked into for
+  `.obsidian` — on the folder's lane now. A renamed note's place, kept on
+  the way in under its old name, is taken back.
+- Release builds for macOS and iOS, and a Swift 6 type-check of the module —
+  a planted error reported, and no other — whose one warning on a line of
+  this work's is a `weak` capture of the view's own `@State` proxy, which
+  the view's task holds anyway. The website's Git and features pages
+  describe Pull, for the push that publishes the release and not before it.
+
+Their tests: a late look waits for no look at the folder; a file its
+provider does not answer about holds up no turn; a change heard while a walk
+is coming is that walk's to read (`DirectoryPresenterTests`); a second
+restore waits for the first (`LinkAtLaunchTests`); removing an entry keeps
+what another window recorded (`PlacesAfterAMoveTests`); and a burst of
+changes barely touches the main actor (`MainActorBudgetTests`, opt-in).
+Their controls: the check's deadline made an hour failed its test alone, at
+the test's time limit; the check put back on the root lane failed both
+late-look tests; and four breaks at once — no look skipped while a walk was
+coming, Remove without reading the list, a restore that did not wait, the
+map made at every event — failed their four tests, each its own.
+
+**Tests.** `LaunchRestoreTests` (1, new): a launch that mints a bookmark
+again keeps the cloud collections, and the local one comes back from its
+renamed folder — the bookmark resolving stale is the control. In the app's
+suites: a deletion heard before it is made is news while the collection
+shows it, and not otherwise; a saved note back from away is news
+(`DirectoryPresenterTests`); a rename or a move keeps where a note was read,
+and a test host keeps its places to itself (`ReadingPositionsTests`); a
+collection's settings are found after a move (`PlacesAfterAMoveTests`); Stop
+while fetching is the pull's own cancel, and a pull that fails after writing
+tells the collection (`GitPullTests`). In the editor package, on both
+platforms: a heading jump wins over a place put back, and before the first
+layout is where the note opens; a place past the end stands at the last
+line; and on iOS a scroll the view did not make ends the standing place.
+
+**Controls**, each put back by its own text. In the app, seven breaks at once —
+the list of cloud collections read after the early write, the deletion event
+ignored, `isPictured` dropped, `moved` doing nothing, `adoptKey` moving
+nothing, the fetch's cancel passed up, `partlyWritten` telling no one —
+failed seven tests, each its own (twelve issues), and the other 27 in those
+five suites passed. In the package, a jump not through `showAtTop`, an
+`offsetMoved` that ends nothing and an unclamped place failed three tests on
+macOS (the jump's two and the clamp's; six passed) and four on iOS (with the
+foreign scroll's; five passed). Not run: the control of
+`aTestHostKeepsItsPlacesToItself`, which is the leak itself and would write
+the person's preferences again; the first thing it would fail is an identity
+(`store !== .standard`).
+
+**Checked**, on the final tree. The app's suite, signed, 1,041 tests in 158
+suites, with the 29 opt-in skips (the burst's among them; an earlier run's
+count of the log said one fewer than ran, a skip's line cut through by
+another process's output); the main-actor budget suite alone, 18 — once
+failing a harness's own check that the window was quiet before typing, at a
+load average over 13, and passing when run again, as the rule for a suite
+that keeps time says; this work's eight app suites on the iPad simulator,
+58 in 8; the iPhone interface tests, 15 cases and the 4 launch runs, with
+the three opt-in skips; and Release builds for macOS and iOS. The editor
+package, last changed before the release's part: 573 in 62 on macOS
+(332/40, 215/18, 26/4) and 547 in 58 on the iPad simulator (306/36, 215/18,
+26/4); and the iPad's held-upright typing test, run and passed. After every
+run the person's preferences held no reading place — their keys counted by
+name, 51.
+
+**Left.**
+- A pull's checkout is libgit2's, past file coordination: in a repository on
+  a File Provider or iCloud folder, a provider could take a file back while
+  it is written. That is §51.69's design — the collection is told, and reads
+  its folder — and it is not changed here.
+- Read and reasoned, not run: the cached document's place (no hosted test
+  builds two of a note's documents), ⌘Q (no test drives the termination
+  drain), Preview's attribution during a fling, the sidebar's place waiting
+  for the launch to settle, a download or an eviction as news (a stand-in
+  provider cannot set a download status, and the suite has no iCloud
+  folder), the `/var` spelling of folders built from the cache (this Mac's
+  test folders have no `/private` twin; `SymlinkedRootTests`' staging could
+  carry one), the closed collection's dropped verdict, and Open Recent's
+  reading of the list it is about to write. And from before the release:
+  the editors told before Git, the launch's owed write, a collection closed
+  during the launch, the renamed note's place taken back, and recording on
+  the folder's lane.
+- Stop with a second pull queued behind the first stops the second. The
+  Sync menu is off while Git is busy, so a second can be queued only in the
+  moment before the first begins.
+- `willFlush` keeps the reading place at every carry of live edits, and so
+  reads the list of places again, up to 500, each time.
+- A standing place ends at any change of offset the view did not make — the
+  system's own clamping near the end of a note among them, if it moves the
+  offset there (the review's hypothesis; not seen).
+
+### 51.71 Open Recent, and the window's note and place, through a move (2026-11-08)
+
+The rest of §51.70's "Left", done at the person's word ("Do this task
+here"). Seen first in the iPhone simulator on the build before this change:
+a relaunch brought back the note left open; a reinstall, which moves the
+container, brought back no note and put the window on the Library place;
+and Open Recent held twenty-one entries, every one the sample collection.
+
+- **Open Recent listed a collection once for every container it had been
+  opened in.** It told entries apart by path, and each move gave the
+  collection a new one. A collection is recognised under the container's
+  earlier names as it is recorded now (`ContainerPath.placeName`), and once
+  a launch the entries that share a name are tidied (`RecentsStore.tidy`):
+  their bookmarks, which follow a folder where a path does not, resolved off
+  the main actor on the scans' lanes without mounting anything, and those
+  that resolve to one folder made one entry — the most recent, named where
+  the folder is now. Most of the twenty were left before any earlier name
+  was learnt (§51.70 learns them from the launch after a move), so a
+  bookmark is the only witness to them.
+- **The window's last note and collection were not reopened, and its open
+  folders all closed.** Scene storage keeps them by absolute path. After the
+  launch each is looked for by place — the note among the notes, the
+  collection among the open ones, each folder moved into today's container
+  in the spelling it was kept in (`ContainerPath.todaysPath`,
+  `index(of:in:)`, `ExpandedFolders.inTodaysContainer`).
+- **The window went to the Library place.** The sidebar's place was stored
+  as the collection's path, the collection was taken for closed under its
+  new one, and with the focus not yet back the Library place was chosen for
+  it — by two handlers, each on its own: the one that follows the open list
+  and the one that lands a first collection. Both re-spell the stored place
+  to the open collection first (`RailPlaceStorage.respelled`).
+- **A container is named by a UUID** (`ContainerPath.earlierHome`). §51.70's
+  sibling rule held on a phone and the simulator, and on an unsandboxed Mac —
+  CI's test host — a folder moved from `/Users/Shared` into the home would
+  have taught "the container was `/Users/Shared`". The Mac's own container
+  (`…/Data`) never moves.
+
+**Tests.** `PlacesAfterAMoveTests` (7): a path kept under an earlier name is
+today's, in its own spelling, and nothing else moves; only UUID-named
+containers are learnt; a window's last note is found by place, never a note
+of the same name elsewhere; its open folders are named where they are; the
+sidebar keeps its collection, while a closed one still sends it to the focus
+and the Library place stays put; a collection opened again after a move is
+one Open Recent entry, while a folder of the same name elsewhere keeps its
+own; and three installs' worth of one folder are tidied into one by their
+bookmarks — the most recent, named where the folder is now, and kept so.
+`ContainerMovesTests` names its containers by UUIDs now, as the rule needs.
+**Controls**, each failing where it should and then put back, in two rounds:
+Open Recent told apart by path, a tidy that keeps every entry, no UUID rule,
+folders left as kept and the sidebar's place not re-spelt each failed its
+own test (five tests, eight issues) and nothing else; and a `todaysPath`
+deaf to earlier names failed the five tests that go through it (seven
+issues) while the tidy still passed — its bookmarks need no learnt name,
+which is what they are for.
+
+**Checked.** The app's suite, signed, 1,027 tests in 157 suites (the 28
+opt-in skips, none new); this work's suites on the iPad simulator, 25 in 4;
+the iPhone interface tests, 15 cases and the 4 launch runs, with the three
+opt-in skips; and the iPad's held-upright typing test, one test run and
+passed. End to end in the iPhone simulator, on the build
+before this change and then on this one, a reinstall moving the container
+each time. Before: a note left open came back after a plain relaunch; after
+a move no note came back, the window stood on the Library place, and Open
+Recent went from twenty entries of the sample collection to twenty-one.
+After: the first launch of this build — itself after a move — tidied Open
+Recent to one entry, named where the folder is now, and reopened the
+collection and the note the old build had kept two containers back; then,
+a folder opened and the app sent home, another move brought back the
+collection, the note in the editor, the folder open, and Open Recent still
+one.
+
+**Left.** A collection inside *another* app's container — a vault in On My
+iPhone ▸ Obsidian — is named by its path in that container, which moves
+when that app's does, if it does. What this app keeps for it is then left
+behind, as its own was before §51.70: nothing here learns another app's
+earlier names. The bookmark still finds the vault itself.
+
+### 51.70 What the app keeps outlives a move of its container (2026-11-08)
+
+Flagged in §51.69 and done at the person's word ("Do this task here"): an iOS
+app's data container is a folder named by a UUID, and it moves — at every
+`simctl install`, measured — and two stores besides the index cache were keyed
+by a collection's absolute path: the Assistant's conversations
+(`ChatSessionStore`) and the links the person declined (`DeclinedLinkStore`).
+An inventory of everything the app keeps by a path found two more, and one of
+them was worse than either.
+
+- **What a collection keeps is kept by its stable name.** The conversation,
+  the declined links, a walk's resume point (`WalkCheckpointStore`) and the
+  index cache are named from `ContainerPath.stableName` — `~/…` inside the
+  container, the path itself outside it — through one place
+  (`ContainerMoves.place`). A collection outside the container (iCloud
+  Drive, any folder of the Mac's) has the name it had, so nothing of it
+  moves; one inside it — the sample collection, a folder On My iPhone, every
+  cloud collection's cache — has a new one.
+- **What was kept under the old name is moved to the new one** the first
+  time a store is asked for it: renamed, never copied, and never over
+  something already there. The old name is the path under the container as
+  it is called today — a device whose container did not move — or as it was
+  called before. That earlier name is learnt at launch from the open list's
+  last paths, which the last run wrote and this one writes again as soon as
+  each folder is found: a last path less the folder's place in today's
+  container is what the container was called (`ContainerPath.earlierHome`,
+  `ContainerMoves.learn`, kept as `earlierContainerHomes`, eight at most).
+  Only a sibling of today's container counts, so a folder moved in from a
+  stick is not taken for a container that moved. Without it, an update that
+  moves the container — if a device's does; nothing here has measured one —
+  would leave the conversation behind on the very launch that brings this.
+- **A cloud collection was dropped by a move.** The open list keeps a cloud
+  collection by its cache's absolute path, in the container's Application
+  Support. Restored, the cache was looked for only there, not found, and the
+  collection left out — and the next save of the list dropped it for good,
+  with anything it had not yet sent still in a cache nothing pointed at. It
+  is looked for in today's container too, as the same provider and folder
+  (`RemoteMirror.cacheRoots`), and found there it teaches the container's
+  earlier name. The list still keeps absolute paths, so an older build
+  reading it again — TestFlight can put one back — finds what it wrote.
+- **The index cache found again is a walk not made.** Re-keyed in §51.69
+  with nothing to find the old one, it would have cost every collection
+  inside the container a walk on the first launch with stable names; a read
+  (`keptCacheURL`) moves the old cache first. `cacheURL` still never looks at
+  the disk.
+
+**Tests.** `ContainerMovesTests` (10, one with two cases): a path's former
+names — both spellings, both containers; outside it, itself; a folder whose
+name begins with the container's, outside — and the earlier name learnt only
+from a sibling container, once, eight kept; a conversation kept before the
+move found after it, moved and not copied, then found again with no earlier
+name known; one kept in today's container, in either spelling; one under the
+stable name never replaced; the declined links; a walk's resume point; the
+index cache; a cloud cache looked for in today's container. **Controls**,
+each failing where it should and then put back: the move turned off failed
+the five store tests (ten issues) and nothing else; earlier names ignored
+failed the moved-container tests and the names test while the unmoved
+container passed, and an earlier name learnt without the sibling check took
+a stick for a container (eleven issues between them); a cache looked for
+only where it was kept, a move made over the conversation already there,
+and no limit on the names kept each failed their own test (four issues).
+
+**Checked.** The app's suite, signed, 1,020 tests in 156 suites (the 28
+opt-in skips, none new); on the iPad simulator, this work's suites and those
+of the stores it changed, 71 tests in 7. The editor package was not run:
+nothing in it changed. End to end in the iPhone simulator, a reinstall
+standing in for an update that moves the container. The first launch of this build after an
+install learnt the last container's name from the open list and moved a
+walk's resume point the previous build had kept by absolute path to its
+stable name (`ScanCheckpoints: 5a55…, kept under a former name, moved to
+6b70…`) — the previous build's own data, not a planted one. Then a
+conversation and a cloud collection were kept the way 1.3.5 keeps them — the
+transcript under the digest of the collection's absolute path, the cache's
+absolute path in the open list — and the app installed again. It learnt the
+container's earlier name, found the cloud cache in today's container (`found
+in today's container, not where it was kept`) and drew the collection with
+its note; opening the Assistant moved the conversation to its stable name
+(`chats: f5ef…, kept under a former name, moved to dfb8…`) and showed it
+whole. The list was written again with the cache's path in today's
+container, and a relaunch drew both collections from their caches with
+nothing to learn. What was planted was taken out of the simulator after.
+**Not checked**: whether an App Store or TestFlight update moves a device's
+container — the change holds either way, and only the simulator's reinstall
+has been seen to; and the Mac live, whose container does not move, where
+only the sample collection and the cloud collections' caches are inside it,
+and are moved to their new names by the same path as an unmoved device's.
+
+**Left.** Three more things are kept by a path inside the container and are
+reset once by a move, none of them anything the person made: the note each
+window last showed (`restoredNotePath`) and the folders open in the sidebar
+(`expandedFolders`), both scene storage; and Open Recent, which tells its
+entries apart by path, so after a move the collection is listed twice, once
+under each name, both opening it. Done in §51.71, with a fourth found on the
+way: the sidebar's place.
+
+### 51.69 Back where you were, no walk on return, and Pull (2026-11-07)
+
+The person, of the iPhone: "The iOS version doesn't seem to remember position
+in document in between use, and keeps rescanning collection when relaunched
+or resumed. Also there seems to be no way to manipulate git collection, ie.
+pull latest version etc." All three were true as said.
+
+- **A return to the app walked the collection.** iOS tells a suspended app
+  nothing, and on its return the folder's presenter hands it everything at
+  once — the save the app made on its way out among it: in the simulator, the
+  note and the atomic save's own temporary file (`Note.md.sb-…`). The
+  collection knew its own writes by *time* — heard within 12 seconds of one
+  (`selfWriteWindow`), remembered for 15 (`selfWriteMemory`) — and a return
+  comes minutes or hours later, so it took its own save for someone else's
+  change and walked the folder, at every return. Now what each save left is
+  looked at as it lands: its size and date, in a turn, on the collection's
+  lane (`rememberFingerprints`); a file of another size than the save wrote is
+  someone else's write landing in between, and is not remembered. News that
+  no recent write explains is looked at path by path before anything is
+  walked, up to 32 paths (`anyStillNews`), off the main actor: a file still
+  showing what the collection saved there, or what its picture shows, was
+  written by nobody since; a path that is gone was news only if the
+  collection showed it; a folder, a file the collection does not know and a
+  look that fails are news, and the folder is walked as before. The stall log
+  (`HN_STALL_LOG`) says `as the collection left them; no walk`.
+- **And every launch said it was scanning.** A launch draws the collection
+  from its index cache and walks the folder to check it, and each change heard
+  from outside walks it again; past 750 ms each put up "Scanning …", then
+  "Scanned N notes in M folders", over notes that had been on screen, and
+  usable, all along. A walk that checks a picture already on screen says
+  nothing now — what it finds still arrives. Only a walk with nothing yet to
+  show, and Rescan, which someone asked for, says how it is going
+  (`announceNextWalk`).
+- **Nothing kept a note's place past the process — and Edit not even within
+  it.** The iOS text view is made new for each document and opened at the
+  top; the Mac's is bound to the next note and kept the last one's offset.
+  Preview, where an iPhone opens a note (`EditorMode.platformDefault`), kept
+  each note's place in a memory as long-lived as the process
+  (`PreviewScrollMemory`, §51.23) — and an iPhone ends a suspended app when it
+  likes.
+  - **Edit keeps a character**: the one at the top of the view, in the
+    note's document (`EditorDocument.readingPosition`), as scrolling stops
+    and as the view goes, and puts it back once the view has a size
+    (`ReadingPosition.swift`). A character, because it means the same thing
+    at another width, text size or platform. TextKit 2 places what it has not
+    laid out by estimated heights, and laying out what comes on screen moves a
+    line from where the estimate put it — six paragraphs short, in a
+    sixty-paragraph note — so the line is stood at the top, the viewport laid
+    out, and the line measured again and corrected, up to four times
+    (`standAtTop`). A scroll someone asked for — the outline, a link to a
+    heading — wins over a place still waiting; asked for before the view was
+    laid out, it scrolled an estimate and cleared the place, so it becomes
+    the place waiting (`hasLaidOut`). **And a place put back stands until
+    the reader moves.** A note is styled in batches after it is shown, and
+    its tables and diagrams are drawn as they arrive, each changing the
+    height of what is above the place: put back exactly, the place had
+    drifted ten lines by the time it was looked at, in the iPhone simulator,
+    and the record taken 0.3 s later kept the drifted character — so each
+    launch would have drifted further. The view stands the place at the top
+    again at each layout, a restyle asking for one (`keepStandingIfPutBack`),
+    and a record while it stands keeps it — until the reader takes over. On
+    iOS that is a drag, a tap on the status bar, the start of editing, or a
+    range asked to be shown; on the Mac any move of the clip view the view
+    did not make itself (`clipMoved`) — a wheel, a trackpad, the scroller, a
+    key, the find bar's match — and a click or a key in the text
+    (`readerTookOver`). **Not by overriding the wheel**: the first version
+    heard the Mac's wheel through the text view's `scrollWheel(with:)`, and
+    AppKit turns responsive scrolling off for a document view whose class
+    overrides it — a wheel then stopped where TextKit 2's estimate of the
+    note ended, 4,160 points short of the room past its end, and three of
+    `EditorScrollingTests` failed in the full suite before anything else
+    showed it. Sixty plain paragraphs, which styling
+    never changes, could not show it; the test grows a paragraph above the
+    place as a restyle does.
+  - **Preview keeps points down its page**, which has no characters to stand
+    on. The host hears a place only from a report the memory counts — from
+    the page on screen (`PreviewScrollRelay.take`) — and a page of a note the
+    preview has not shown yet opens where the host says it was left
+    (`GFMPreview.readingPlace`); the preview's own memory wins after that.
+    **And a page waits for its web view's size** (`GFMWebLoadState.waitingPage`,
+    `PreviewWebView`): a web view is handed its first page before it has one
+    (`frame (0.0, 0.0)`, in the preview log), and that page gets its column's
+    margins only after it has loaded — put at its place in one layout and
+    shown in another, wherever the reading column is narrower than the pane.
+    With the column the full width, the default, nothing moved: the hold is
+    for a narrower column, where it was not seen either way.
+  - **A picture taken just after a drag is of a page still moving.** The
+    first look seemed to show a note left at 1,530 points opening 426 points
+    further on, at every launch, and the hold above was written for that. A
+    probe in the page — its own scroll position at each step, into the
+    preview log — said otherwise: opened at 1,530 it stayed at 1,530, and a
+    drag of 500 points moved the page 1,000. The simulator tool's drag lets
+    go with speed even after a held stop, and the page glides on for a
+    second or more, reporting as it goes; the "left" picture had been taken
+    mid-glide, and the place kept was where the page came to rest. Left at
+    rest — its last report read first — and reopened after the app was
+    ended, the page showed the same lines, at 516 points before and after.
+  - **Both are kept beyond the app** (`ReadingPositions`) as a note is left,
+    as its view goes and as the app leaves the foreground, which is the last
+    moment an iPhone promises; by the note's path with `/private` taken off,
+    so either name of an iPhone's folder finds it; each kind under its own key
+    (`readingPositions`, `previewReadingOffsets`), the 500 most recently left
+    of each. A note left at its top has no entry, and a capture session keeps
+    nothing.
+  - **And the app's container moves.** An iOS app's data container is a
+    folder named by a UUID, and in the simulator it moved at every install —
+    `…/Application/ADE7D338…` to `…/Application/2CE3E666…`, the collection
+    following through its bookmark. A place kept by a note's path inside it
+    was found by nobody, and so was the collection's index cache, keyed by a
+    hash of the root's path: after each install the stall log said
+    `apply(38 notes)` where every relaunch between said `drew 38 notes from
+    cache` — the collection walked, and announced, as if never seen. A path
+    inside the container is named from it now (`ContainerPath`,
+    `~/Documents/…`), for places and for the cache, whose records are
+    relative to the root and so hold wherever it is; a path outside keeps its
+    own. Text only, no look at the disk: the old name went through
+    `standardizedFileURL`, which asks the disk for a path spelled
+    `/private/…`, and Preview asks for a place while a page is handed over.
+    Whether a device's App Store or TestFlight update moves the container as
+    a simulator install does was not checked.
+- **And there was no pull.** The Git pane offered Push and Fetch, and a fetch
+  moves only the remote's branch inside `.git` (the 1.3.3 pass, further down,
+  said so: "There is no pull"). The Sync menu is Pull, Push, Fetch now, and Stop stops
+  a pull as it stops a push. `GitPull` is written against libgit2, since
+  SwiftGitX has no merge: fetch, then fast-forward; with commits on both
+  sides, a merge worked out in memory (`git_merge_commits`), so the same part
+  of a file changed on both sides stops it before anything is written (changes
+  to different parts are merged, as Git merges them), and the message names
+  the file. What comes is checked out the safe way (`GIT_CHECKOUT_SAFE`),
+  which refuses before writing if it would write over a change not yet
+  committed, and only then does the branch move. Uncommitted changes to files
+  the pull does not touch are left alone, and a repository never committed to
+  takes the remote's branch as it is. It runs on a thread of its own
+  (`GitThread.pull`, §51.66), and a merge commit is signed as a commit made
+  here is. **libgit2 writes past file coordination**, so on iOS the presenter
+  hears nothing of a pull: one that changed files tells the collection
+  (`GitService.onWorkingTreeChanged`), which walks the folder and tells the
+  open notes — a clean one reloads, one holding typing is asked about. Like
+  Commit, a pull takes what is on disk; typing not yet saved is asked about,
+  never written over.
+
+**Tests.** `DirectoryPresenterTests.theCollectionsOwnSaveHeardLongAfterIsNotNews`
+— the saved note, the save's temporary file and a shown note, heard after the
+time window, ask for no walk; a change made elsewhere since, a new file and a
+shown note gone ask for one each, each on a collection of its own so that no
+walk one asks for can answer for the next. `whatIsNotTheCollectionsIsNotNewsToIt`
+now makes the file its control names: a path that is not there and was never
+shown is no longer news. `QuietWalkTests` — the first walk says how it is
+going, a check says nothing, Rescan does. `GitPullTests` (7) — up to date, a
+fast-forward, a merge, a conflict changes nothing, uncommitted work in the way
+changes nothing, uncommitted work elsewhere survives, and the service pulls and
+the collection reads what came. `ReadingPositionsTests` (6), `ContainerPathTests` (3). In the package,
+`ReadingPositionTests` (six on the Mac, five on iOS) and five in
+`GFMPreviewScrollTests`. **Controls**, each failing where it should and then
+put back: every late path made news, and every walk made to announce itself,
+failed the two new tests, one issue each; a forced checkout and a pull that
+does not tell its collection failed three of the pull tests (six issues); no
+place put back failed the round-trip tests on both platforms; and a relay that
+tells the host every report failed `theHostHearsOnlyTheReportsThatCount`
+three times — the replaced page's report and the bounce above the top; and a
+page loaded at once into a web view with no size failed
+`aPageWaitsForItsWebViewsSize` three times; and a name that ignores the
+container failed the three container tests (five issues); and a place put
+back that stands no longer drifted with the paragraph grown above it, and
+the drifted character was the one recorded, on both platforms — the same
+drift the test's own control shows once the reader has taken over; and a
+deaf `clipMoved` left a place standing after someone else had scrolled.
+
+**Checked.** The editor package, 570 tests in 62 suites on the Mac
+(329/40, 215/18, 26/4) and 543 in 58 on the iPad simulator (302/36, 215/18,
+26/4); the app's suite, signed, 1,010 tests in 155 suites; this work's suites
+on the iPad simulator, 43 in 6; the iPhone interface tests, 15 cases and 4,
+with the three opt-in skips, and the iPad's held-upright typing test. End to
+end in the iPhone simulator, the app ended between looks the way an iPhone
+ends a suspended one: Preview left at rest at 516 points opened on the same
+lines, after a relaunch and after reinstalls that moved the container; Edit,
+left with character 935 at the top, came back with that line standing there
+through the note's styling, two looks apart; after each reinstall the
+collection was drawn from its cache (`drew 38 notes from cache`, where the
+key by full path had said `apply(38 notes)`); and typing, home, 25 seconds,
+back — the note and its save's temporary file heard late with no write
+remembered (`selfWrites=0`), and `as the collection left them; no walk` for
+each, where the morning's same sequence had walked the vault. **Not
+checked**: the Mac app live — a capture would show the person's own
+collections — and Pull against a real remote rather than the tests' local
+ones. Read what an app kept in the simulator from its container's
+`Library/Preferences` plist: `simctl spawn … defaults export` answered from
+a domain with one key.
+
+**Left.** The website's Git page says "No merge or pull"
+(`website/src/pages/manual/git.astro`); it describes the app that is live, so
+it changes with the release that brings Pull. Two more stores were keyed by a
+collection's path and lost their data when the container moved — the
+Assistant's conversations (`ChatSessionStore`) and declined link suggestions
+(`DeclinedLinkStore`); unlike the cache they hold the person's data, and
+§51.70 re-keys them with what they kept moved to the new name.
+
 ### 51.68 The suite that waited for someone to answer macOS (2026-10-26)
 
 A signed `run-tests.sh` run printed nothing for fifty-eight minutes — from

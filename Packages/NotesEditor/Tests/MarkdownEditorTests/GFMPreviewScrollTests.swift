@@ -97,6 +97,102 @@ struct GFMPreviewScrollTests {
         #expect(memory.load(note: "Note 1").offset == 2, "a note still in use was forgotten")
     }
 
+    // MARK: - Between launches
+
+    /// **A note this preview has not shown opens where the host says it was
+    /// left** — kept beyond the app, since an iPhone ends a suspended app when
+    /// it likes (implemented.md §51.69) — and one it has shown, where this
+    /// preview left it: the host's place is older than the reader's last
+    /// scroll. The control: with no place from the host, the top.
+    @Test func aNoteNotYetShownOpensWhereTheHostSaysItWasLeft() {
+        var memory = PreviewScrollMemory()
+        var asked = 0
+        let kept: () -> Double? = { asked += 1; return 640 }
+        #expect(memory.load(note: "A", opening: kept) == (1, 640), "the place kept between launches was not used")
+        memory.scrolled(to: 200, onPage: 1)
+        #expect(memory.load(note: "A", opening: kept) == (2, 200), "the host's older place won over the reader's scroll")
+        #expect(asked == 1, "the host was asked about a note this preview had shown")
+        #expect(memory.load(note: "B", opening: { nil }) == (3, 0))
+    }
+
+    /// A place the host keeps that cannot be one — the top, above it, not a
+    /// number — opens the note at its top.
+    @Test func aKeptPlaceThatMeansNothingOpensAtTheTop() {
+        for nonsense in [0, -40, Double.nan, .infinity] {
+            var memory = PreviewScrollMemory()
+            #expect(memory.load(note: "A", opening: { nonsense }) == (1, 0), "a kept place of \(nonsense) was used")
+        }
+    }
+
+    /// **The host hears where the reader scrolls — from the page on screen
+    /// only**: a report from a page since replaced would have been kept as the
+    /// new note's place. The control: the page on screen's report is heard.
+    @Test func theHostHearsOnlyTheReportsThatCount() {
+        let state = GFMWebLoadState()
+        var heard: [Double] = []
+        state.onPlaceChange = { heard.append($0) }
+        _ = state.scroll.load(note: "A")
+        state.scrollRelay.take(["page": 1, "y": 480])
+        #expect(heard == [480], "the page on screen's report was not heard")
+        _ = state.scroll.load(note: "B")
+        state.scrollRelay.take(["page": 1, "y": 900])
+        #expect(heard == [480], "a report from note A's replaced page was told as note B's place")
+        state.scrollRelay.take(["page": 2, "y": -20])
+        #expect(heard == [480, 0], "the bounce above the top was told as a place above it")
+        state.scrollRelay.take("not a report")
+        #expect(heard == [480, 0])
+    }
+
+    /// The page is told to open where the host says, before it is parsed —
+    /// the same opening script as a place this preview remembers.
+    @Test func aPageIsToldTheHostsPlace() {
+        let web = WKWebView(frame: Self.paneFrame)
+        let state = GFMWebLoadState()
+        state.openingPlace = { 640 }
+        GFMWebView.load(web, "<p>one</p>", 1, nil, state, note: "A")
+        let opening = web.configuration.userContentController.userScripts
+            .first { $0.injectionTime == .atDocumentStart }?.source
+        #expect(opening == PreviewScrollRelay.openingScript(page: 1, offset: 640))
+    }
+
+    /// A pane's size, for a web view that has been laid out.
+    static let paneFrame = CGRect(x: 0, y: 0, width: 428, height: 650)
+
+    /// **A page waits for its web view's size.** Handed over before the view
+    /// had one, a page was put where its note was left in one layout — with
+    /// no column margins, which came only after it had loaded — and shown in
+    /// another (implemented.md §51.69). Held, it loads as the view is given a
+    /// size, with the latest page handed over, told where it opens and its
+    /// column's margins at that width. The control: a view with a size loads
+    /// at once.
+    @Test func aPageWaitsForItsWebViewsSize() {
+        let state = GFMWebLoadState()
+        state.openingPlace = { 1_530 }
+        let web = GFMWebView.makeWebView(state: state)
+        state.web = web
+        func opening() -> String? {
+            web.configuration.userContentController.userScripts
+                .first { $0.injectionTime == .atDocumentStart }?.source
+        }
+        GFMWebView.load(web, "<p>one</p>", 1, nil, state, note: "A")
+        GFMWebView.load(web, "<p>two</p>", 2, nil, state, note: "A")
+        #expect(state.loaded == nil, "a page loaded into a web view with no size")
+        #expect(state.scroll.page == 0, "a page held for a size took a number")
+
+        web.frame = Self.paneFrame
+        #if !canImport(AppKit)
+        web.layoutIfNeeded()
+        #endif
+        #expect(state.loaded == 2, "the latest page did not load once the view had a size")
+        #expect(opening() == PreviewScrollRelay.openingScript(page: 1, offset: 1_530),
+                "the page that waited was not told where its note was left")
+
+        let sized = WKWebView(frame: Self.paneFrame)
+        let ready = GFMWebLoadState()
+        GFMWebView.load(sized, "<p>one</p>", 1, nil, ready, note: "A")
+        #expect(ready.loaded == 1, "a view with a size did not load at once")
+    }
+
     // MARK: - What each load is told
 
     /// Each page is told, before it is parsed, which page it is and where it
@@ -105,7 +201,7 @@ struct GFMPreviewScrollTests {
     /// loaded again, and does not take a new number: the page on screen keeps
     /// reporting for itself.
     @Test func eachPageIsToldWhereItOpens() throws {
-        let web = WKWebView()
+        let web = WKWebView(frame: Self.paneFrame)
         let state = GFMWebLoadState()
         func scripts() -> [WKUserScript] { web.configuration.userContentController.userScripts }
         func opening() -> String? { scripts().first { $0.injectionTime == .atDocumentStart }?.source }

@@ -428,4 +428,17 @@ enum ExpandedFolders {
             get: { Set(stored.wrappedValue.split(separator: "\n").map(String.init)) },
             set: { stored.wrappedValue = $0.sorted().joined(separator: "\n") })
     }
+
+    /// The open folders kept, named where they are in today's container.
+    /// A folder's id is its absolute path, which a move of the app's
+    /// container changes, so every folder closed after one (implemented.md
+    /// §51.71).
+    nonisolated static func inTodaysContainer(_ stored: String, home: String = NSHomeDirectory(),
+                                              earlierHomes: [String]) -> String {
+        guard !earlierHomes.isEmpty, !stored.isEmpty else { return stored }
+        let folders = Set(stored.split(separator: "\n").map {
+            ContainerPath.todaysPath(of: String($0), home: home, earlierHomes: earlierHomes)
+        })
+        return folders.sorted().joined(separator: "\n")
+    }
 }

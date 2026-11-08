@@ -258,6 +258,37 @@ They apply to this package's sources and to `Tools/RenderParity`, which grades i
   restyling 30,000 characters per keystroke; it splices the bits now
   (`splicedStyledBits`). `HeadingTypingTests` holds both, with the restyled
   character count and the screen position measured per keystroke.
+- **A scroll to a place TextKit 2 has not laid out lands on an estimate.**
+  What is off screen has estimated heights, and laying out what comes on
+  screen moves a line from where the estimate put it — six paragraphs short,
+  in a sixty-paragraph note. To stand a line at the top, scroll, lay out the
+  viewport (`textViewportLayoutController.layoutViewport()`), measure again
+  and correct (`standAtTop`, up to four times). And a scroll asked for before
+  the view's first layout scrolls an estimated content size, so on iOS it went
+  nowhere: it waits as the place to put back (`hasLaidOut`,
+  `ReadingPositionTests`). **And put back, a place does not stay put by
+  itself**: the note is styled in batches after it is shown and its embeds
+  drawn as they arrive, each changing the height of what is above it, and
+  the offset stays where it was — ten lines of drift on an iPhone. It is
+  stood at the top again at each layout until the reader moves
+  (`keepStandingIfPutBack`, `readerTookOver`). A test of anything positional
+  needs text whose styling changes heights; sixty plain paragraphs hid this.
+  **So every scroll the editor makes on purpose is a place, and every other
+  scroll ends one.** A heading jump scrolled with `setContentOffset` and said
+  nothing, and the next layout stood the old place back over it — the
+  outline looked dead on iOS (implemented.md §51.72). A jump goes through
+  `showAtTop`, which wins over a place waiting or standing and stands as the
+  place itself; and on iOS a scroll the view did not make — VoiceOver's, a
+  focus scroll — ends the place (`offsetMoved`), as `clipMoved` does on the
+  Mac. A place past the end of a note shortened since is clamped to its last
+  line (`clampedPlace`).
+- **Never override `scrollWheel(with:)` on the Mac's text view.** AppKit turns
+  responsive scrolling off for a document view whose class overrides it, and
+  a wheel then stopped where TextKit 2's *estimate* of the note ended — 4,160
+  points short of the room past its end (`EditorScrollingTests`, in the app's
+  suite, was the only thing that saw it). To hear that someone scrolled, ask
+  the clip view: a bounds change the view did not make itself is someone
+  else's scroll (`clipMoved`).
 - **TextKit 2 places the empty line after a final newline *its own height*
   below the top of the line above it** — whatever that line's height. After a
   16pt blank line a 24pt last line stood at 24, and after a 30pt one at 24 as

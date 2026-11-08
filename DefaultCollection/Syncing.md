@@ -16,11 +16,14 @@ you open them rather than pulling your whole vault onto the device.
 ## Git
 
 The **Git** row at the top of the sidebar is for the collection you have
-selected: its branch, a dot when there are changes, and commit — with push and
-fetch once the repository has a remote — or, for a folder that is not a
-repository yet, a button that makes it one. Each note's versions are under
-**History** in the panel. Commit and push from inside the app, or don't — it is
-your repository. (A collection from one of the cloud accounts below is the
+selected: its branch, a dot when there are changes, and commit — with pull,
+push and fetch once the repository has a remote — or, for a folder that is not
+a repository yet, a button that makes it one. **Pull** brings in what was
+pushed from somewhere else, merged with what you have committed here; if the
+same part of a note changed in both places, or it would write over a change you
+have not committed, it stops and changes nothing, and says which note. Each note's
+versions are under **History** in the panel. Commit and push from inside the
+app, or don't — it is your repository. (A collection from one of the cloud accounts below is the
 provider's to keep, so with one selected there is no Git row.)
 
 ## Cloud accounts

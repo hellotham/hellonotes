@@ -46,9 +46,26 @@ nonisolated enum RailPlaceStorage {
 
     /// Where the rail stands once the open collections are `open`: where it
     /// was, unless the collection it named has closed — then with the focus.
-    static func keeping(_ stored: String, open: [String], focused: String?) -> String {
+    static func keeping(_ stored: String, open: [String], focused: String?,
+                        earlierHomes: [String] = [], home: String = NSHomeDirectory()) -> String {
+        let stored = respelled(stored, open: open, earlierHomes: earlierHomes, home: home)
         guard stored != library, stored != unset, !open.contains(stored) else { return stored }
         return focused ?? library
+    }
+
+    /// `stored` as the open collections name it today. A collection is
+    /// stored by its path, which a move of the app's container changes: it
+    /// was open under today's name and taken for closed, and with the focus
+    /// not yet back the window was put on the Library place for good — after
+    /// every install on the simulator (implemented.md §51.71). So a collection
+    /// stored under one of the container's earlier names (`earlierHomes`) is
+    /// the open one there now; anything else is as stored.
+    static func respelled(_ stored: String, open: [String], earlierHomes: [String],
+                          home: String = NSHomeDirectory()) -> String {
+        guard stored != library, stored != unset, !open.contains(stored),
+              let same = ContainerPath.index(of: stored, in: open, home: home, earlierHomes: earlierHomes)
+        else { return stored }
+        return open[same]
     }
 }
 

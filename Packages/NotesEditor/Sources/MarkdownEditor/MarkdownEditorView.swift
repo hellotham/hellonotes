@@ -95,6 +95,12 @@ public final class EditorProxy {
         textView?.reliablyScroll(to: range)
     }
 
+    /// Keep where the reader is, in the document, now — for a host about to
+    /// keep it somewhere that outlives the app (`ReadingPosition.swift`).
+    public func recordReadingPosition() {
+        textView?.recordReadingPosition()
+    }
+
     /// Make the editor first responder with the caret on the **first line**, at
     /// the horizontal offset `x` (points from the text's left edge).
     ///
@@ -278,7 +284,9 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
             object: scrollView.contentView, queue: .main
         ) { [weak textView] _ in
             MainActor.assumeIsolated {
+                textView?.clipMoved()
                 textView?.ensureVisibleRangeStyled()
+                textView?.readingPositionMayHaveChanged()
             }
         }
         return (scrollView, textView)
@@ -509,6 +517,18 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
     private let joinedLineDelegate = JoinedLineDelegate()
 
     func bind(to document: EditorDocument) {
+        // The note being left keeps its place, and the one arriving is put
+        // back at its own — or at the top: this view, and the scroll view
+        // around it, outlive the note they show (`ReadingPosition.swift`).
+        if let leaving = self.document, leaving !== document {
+            recordReadingPosition()
+            pendingReadingPosition = document.readingPosition ?? 0
+        } else if self.document == nil {
+            pendingReadingPosition = document.readingPosition
+        }
+        standingReadingPosition = nil
+        needsLayout = true
+        hasLaidOut = false
         self.document = document
         // Block decorations (a blockquote's gutter bar, a callout's band) are
         // painted by the layout fragment, so a restyle that adds or removes one
@@ -516,6 +536,8 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
         document.onRestyle = { [weak self] range in
             self?.textLayoutManager?.invalidateLayout(charactersIn: range)
             self?.refreshTypingAttributesAtEnd()
+            // What is above a place put back changed height: stand it again.
+            if self?.standingReadingPosition != nil { self?.needsLayout = true }
         }
         // Setting `font` applies it to the **whole text storage attached right
         // now**, so it must be done while no real document is in place. Two
@@ -601,6 +623,20 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
     /// The text's column and its room past the end (`TextPlacement`).
     var placement = TextPlacement(base: EditorMetrics.textContainerInset)
 
+    /// The reading position waiting to be put back (`ReadingPosition.swift`).
+    var pendingReadingPosition: Int?
+    /// The place put back, held at the top while what is above it settles —
+    /// until the reader moves (`ReadingPosition.swift`).
+    var standingReadingPosition: Int?
+    /// Where this view last left the clip view standing a place, and whether
+    /// it is moving it now: a move of the clip view that is neither is
+    /// someone else's scroll (`clipMoved`).
+    var standingOrigin: CGFloat?
+    var isStandingAtPlace = false
+    /// Whether the view has been laid out since it was bound — before that,
+    /// its height is an estimate and a scroll lands nowhere.
+    var hasLaidOut = false
+
     /// The pane's text column (`TextColumn`), which the text is laid out in at
     /// this view's own width. The view itself fills the pane, so its scroller
     /// is at the pane's edge and a wheel anywhere over it scrolls the note.
@@ -656,6 +692,23 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
         super.layout()
         syncRenderMetrics()
         updateTextInsets()
+        putBackReadingPositionIfPending()
+        keepStandingIfPutBack()
+        if bounds.width > 0, (enclosingScrollView?.contentView.bounds.height ?? 0) > 0 { hasLaidOut = true }
+    }
+
+    /// Going: keep where the reader was.
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { recordReadingPosition() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    /// Something asked to see a range — a match the find bar found, the
+    /// caret: a place put back stands no longer, or the next restyle would
+    /// scroll away from what was shown (`ReadingPosition.swift`).
+    public override func scrollRangeToVisible(_ range: NSRange) {
+        readerTookOver()
+        super.scrollRangeToVisible(range)
     }
 
     /// Light ↔ Dark. `syncRenderMetrics()` runs from `layout()`, and switching
@@ -868,6 +921,7 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
     /// not a standard `NSTextView` binding, and — unlike ⌥+letter — produces no
     /// character, so intercepting it cannot swallow someone's typing.
     public override func keyDown(with event: NSEvent) {
+        readerTookOver()
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 48, modifiers == .option, inlineSuggestion != nil {
             if acceptInlineSuggestion() { return }
@@ -1000,6 +1054,7 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
     }
 
     public override func mouseDown(with event: NSEvent) {
+        readerTookOver()
         // A click on a diagram's enlarge button enlarges it. First, because the
         // button sits over a band whose nearest character can be the next
         // block's — a task box one line down would otherwise take the click.
@@ -1150,6 +1205,17 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
     /// the target first, then scroll to its real frame (estimated heights
     /// make a bare scrollRangeToVisible land short on long documents).
     public func reliablyScroll(to range: NSRange) {
+        // Asked for, so it wins over a place waiting to be put back — and a
+        // view not laid out yet has nowhere to scroll to: the range becomes
+        // the place it puts back, at the top, once it has a size
+        // (`ReadingPosition.swift`).
+        guard hasLaidOut, let clip = enclosingScrollView?.contentView, clip.bounds.height > 0 else {
+            pendingReadingPosition = range.location
+            needsLayout = true
+            return
+        }
+        pendingReadingPosition = nil
+        readerTookOver()
         guard let tlm = textLayoutManager,
               let contentManager = tlm.textContentManager,
               let start = contentManager.location(contentManager.documentRange.location, offsetBy: range.location),
@@ -1957,6 +2023,10 @@ public final class MarkdownUITextView: UITextView {
     /// colour across the entire string before any view exists.
     private func bind(to document: EditorDocument) {
         self.document = document
+        // Made for the document, so at the top until the place it was left at
+        // is put back, once there is a size to put it in (`ReadingPosition.swift`).
+        pendingReadingPosition = document.readingPosition
+        standingReadingPosition = nil
         // A restyle can change what a fragment *is* — a collapsed block, a
         // concealed marker, a gutter bar — so TextKit has to lay it out again
         // and the overlay has to repaint. AppKit wires exactly this and iOS
@@ -1966,6 +2036,8 @@ public final class MarkdownUITextView: UITextView {
             self?.textLayoutManager?.invalidateLayout(charactersIn: range)
             self?.refreshChrome()
             self?.refreshTypingAttributesAtEnd()
+            // What is above a place put back changed height: stand it again.
+            if self?.standingReadingPosition != nil { self?.setNeedsLayout() }
         }
         typingAttributes = [
             .font: document.theme.body,
@@ -2048,6 +2120,20 @@ public final class MarkdownUITextView: UITextView {
     /// The text's column and its room past the end (`TextPlacement`).
     private var placement = TextPlacement(base: EditorMetrics.textContainerInset)
 
+    /// The reading position waiting to be put back (`ReadingPosition.swift`).
+    var pendingReadingPosition: Int?
+    /// The place put back, held at the top while what is above it settles —
+    /// until the reader moves (`ReadingPosition.swift`).
+    var standingReadingPosition: Int?
+    /// The offset this view last stood a place at, and whether it is standing
+    /// one now: any other scroll is the reader's (`offsetMoved`).
+    var standingOrigin: CGFloat?
+    var isStandingAtPlace = false
+    /// Whether the view has been laid out — before that, its content size is
+    /// an estimate (992pt for a note whose middle stands at 1,100), and a
+    /// scroll lands nowhere.
+    var hasLaidOut = false
+
     /// The pane's text column (`TextColumn`), laid out at this view's width.
     public var textColumn: TextColumn {
         get { placement.column }
@@ -2058,10 +2144,28 @@ public final class MarkdownUITextView: UITextView {
         }
     }
 
+    /// Something asked to see a range — a match the find navigator found, the
+    /// caret: a place put back stands no longer (`ReadingPosition.swift`).
+    public override func scrollRangeToVisible(_ range: NSRange) {
+        readerTookOver()
+        super.scrollRangeToVisible(range)
+    }
+
+    /// Editing: the caret's own scrolling is the reader's, and wins over a
+    /// place put back (`ReadingPosition.swift`).
+    public override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { readerTookOver() }
+        return became
+    }
+
     public override func layoutSubviews() {
         super.layoutSubviews()
         syncRenderMetrics()
         updateTextInsets()
+        putBackReadingPositionIfPending()
+        keepStandingIfPutBack()
+        if bounds.width > 0, bounds.height > 0 { hasLaidOut = true }
         // The counterpart of the Mac's bounds observer, which fires on the
         // scroll view's *first* layout as well as on every scroll. iOS only had
         // the scroll half (`scrollViewDidScroll`), so nothing styled the visible
@@ -2089,6 +2193,12 @@ public final class MarkdownUITextView: UITextView {
         // Concealment shrinks a run's font; force TextKit 2 to re-lay-out the
         // freshly-styled span so collapsed markers don't keep their old width.
         textLayoutManager?.invalidateLayout(charactersIn: styled)
+    }
+
+    /// Going: keep where the reader was.
+    public override func willMove(toWindow newWindow: UIWindow?) {
+        if newWindow == nil { recordReadingPosition() }
+        super.willMove(toWindow: newWindow)
     }
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -2403,6 +2513,17 @@ public final class MarkdownUITextView: UITextView {
     /// lands short on a long note, because every fragment between here and there
     /// is still carrying an estimated height.
     public func reliablyScroll(to range: NSRange) {
+        // Asked for, so it wins over a place waiting to be put back — and a
+        // view not laid out yet has nowhere to scroll to: the range becomes
+        // the place it puts back, at the top, once it has a size
+        // (`ReadingPosition.swift`).
+        guard hasLaidOut, bounds.height > 0 else {
+            pendingReadingPosition = range.location
+            setNeedsLayout()
+            return
+        }
+        pendingReadingPosition = nil
+        readerTookOver()
         guard let tlm = textLayoutManager,
               let content = tlm.textContentManager,
               let start = content.location(content.documentRange.location, offsetBy: range.location),
@@ -2449,6 +2570,12 @@ public final class EditorProxy {
 
     public func scroll(to range: NSRange) {
         textView?.reliablyScroll(to: range)
+    }
+
+    /// Keep where the reader is, in the document, now — for a host about to
+    /// keep it somewhere that outlives the app (`ReadingPosition.swift`).
+    public func recordReadingPosition() {
+        textView?.recordReadingPosition()
     }
 
     /// Offer ghost text at `location`, or clear it with `nil`.
@@ -3293,7 +3420,22 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
             DispatchQueue.main.async { [weak tv] in tv?.requestInlineCompletion() }
         }
 
+        /// The reader moving — a drag, or a tap on the status bar — and a place
+        /// put back stops standing (`ReadingPosition.swift`).
+        public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            (scrollView as? MarkdownUITextView)?.readerTookOver()
+        }
+
+        public func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+            (scrollView as? MarkdownUITextView)?.readerTookOver()
+            return true
+        }
+
         public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            // A scroll this view did not make — VoiceOver's, a focus scroll —
+            // and a place put back stops standing (`offsetMoved`).
+            (scrollView as? MarkdownUITextView)?.offsetMoved()
+            (scrollView as? MarkdownUITextView)?.readingPositionMayHaveChanged()
             (scrollView as? MarkdownUITextView)?.ensureVisibleRangeStyled()
             // The caret rect is reported in viewport coordinates, so scrolling
             // moves it even though the caret itself has not budged.

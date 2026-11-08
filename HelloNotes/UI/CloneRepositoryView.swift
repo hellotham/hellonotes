@@ -65,7 +65,7 @@ struct CloneRepositoryView: View {
             } trailing: {
                 if git.isBusy {
                     // A real cancel: libgit2 aborts the transfer at its next progress
-                    // tick (SwiftGitX's callback honours Task.isCancelled).
+                    // tick, which reads `GitCancel` (`GitFetch.clone`).
                     Button("Stop", role: .cancel) { git.cancelClone() }
                 } else {
                     Button {

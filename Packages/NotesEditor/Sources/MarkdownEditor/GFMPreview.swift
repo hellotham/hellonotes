@@ -23,6 +23,8 @@ public struct GFMPreview: View {
     private var busEditorID: String?
     private var onDiagramZoomHandler: ((DiagramZoom) -> Void)?
     private var onLinkTapHandler: ((EditorLinkTap) -> Void)?
+    private var openingPlace: (() -> Double?)?
+    private var onPlaceChange: ((Double) -> Void)?
 
     /// `html` is a complete page (e.g. `GFMRenderer.page(markdown)`), already
     /// with images inlined by the caller. `baseURL` is the note's folder.
@@ -110,6 +112,15 @@ public struct GFMPreview: View {
         var copy = self; copy.onLinkTapHandler = handler; return copy
     }
 
+    /// Where the reader was in the note, kept beyond this preview — between
+    /// launches, by a host that keeps it. `opening` is asked, as a page of a
+    /// note this preview has not shown loads, where that note was left;
+    /// `onChange` hears each place the reader scrolls a page to, as often as
+    /// once a frame — somewhere cheap to put it (`PreviewScrollMemory`).
+    public func readingPlace(opening: @escaping () -> Double?, onChange: @escaping (Double) -> Void) -> Self {
+        var copy = self; copy.openingPlace = opening; copy.onPlaceChange = onChange; return copy
+    }
+
     public var body: some View {
         // No `.ignoresSafeArea()`. On macOS the split view's detail column
         // spans the whole window and the sidebar is drawn over it; the overlap
@@ -118,7 +129,8 @@ public struct GFMPreview: View {
         // its first glyphs hidden — which reads exactly like the document
         // shifting sideways when you switch out of Edit.
         GFMWebView(html: html, baseURL: baseURL, pageID: pageID, editorID: busEditorID,
-                   onDiagramZoom: onDiagramZoomHandler, onLinkTap: onLinkTapHandler)
+                   onDiagramZoom: onDiagramZoomHandler, onLinkTap: onLinkTapHandler,
+                   openingPlace: openingPlace, onPlaceChange: onPlaceChange)
     }
 }
 
@@ -295,8 +307,17 @@ enum PreviewRoom {
 
     func userContentController(_ controller: WKUserContentController,
                                didReceive message: WKScriptMessage) {
-        guard let report = Self.report(from: message.body) else { return }
-        state?.scroll.scrolled(to: report.offset, onPage: report.page)
+        take(message.body)
+    }
+
+    /// A page's report: kept if it is from the page on screen, and then — only
+    /// then — told to the host, which keeps it beyond the app
+    /// (`GFMPreview.readingPlace`).
+    func take(_ body: Any) {
+        guard let report = Self.report(from: body), let state else { return }
+        if state.scroll.scrolled(to: report.offset, onPage: report.page) {
+            state.onPlaceChange?(max(0, report.offset))
+        }
     }
 
     /// What a page's message says: which page, scrolled how far.
@@ -332,21 +353,29 @@ struct PreviewScrollMemory {
     private var recent: [String] = []
     static let capacity = 64
 
-    /// A page of `note` is about to load: its number, and where it opens.
-    mutating func load(note: String?) -> (page: Int, offset: Double) {
+    /// A page of `note` is about to load: its number, and where it opens —
+    /// where this preview last left the note, or else where the host says it
+    /// was left (`opening`, between launches), or else its top.
+    mutating func load(note: String?, opening: (() -> Double?)? = nil) -> (page: Int, offset: Double) {
         page &+= 1
         self.note = note ?? ""
+        if offsets[self.note] == nil, let kept = opening?(), kept.isFinite, kept > 0 {
+            offsets[self.note] = kept
+        }
         return (page, offsets[self.note] ?? 0)
     }
 
-    /// The reader scrolled page `page` to `offset`.
-    mutating func scrolled(to offset: Double, onPage page: Int) {
-        guard page == self.page, offset.isFinite else { return }
+    /// The reader scrolled page `page` to `offset` — and whether that counted:
+    /// a report from a page since replaced does not.
+    @discardableResult
+    mutating func scrolled(to offset: Double, onPage page: Int) -> Bool {
+        guard page == self.page, offset.isFinite else { return false }
         offsets[note] = max(0, offset)
-        guard recent.last != note else { return }
+        guard recent.last != note else { return true }
         recent.removeAll { $0 == note }
         recent.append(note)
         if recent.count > Self.capacity { offsets[recent.removeFirst()] = nil }
+        return true
     }
 }
 
@@ -386,6 +415,11 @@ struct PreviewScrollMemory {
     }()
     /// Where the reader left each note's page (`PreviewScrollMemory`).
     var scroll = PreviewScrollMemory()
+    /// Where the host says a note was left, asked as a page of a note this
+    /// preview has not shown loads; and where it hears the reader scroll to
+    /// (`GFMPreview.readingPlace`).
+    var openingPlace: (() -> Double?)?
+    var onPlaceChange: ((Double) -> Void)?
     /// The page's scroll reports arrive here.
     lazy var scrollRelay: PreviewScrollRelay = {
         let relay = PreviewScrollRelay()
@@ -396,6 +430,19 @@ struct PreviewScrollMemory {
     /// scrolled to only in a page that has its headings. Cleared as a load
     /// starts (`GFMWebView.load`), set when it finishes (`PreviewLinkRelay`).
     var pageReady = false
+
+    /// A page handed over before the web view had a size, loaded once it has
+    /// one (`GFMWebView.load`, `PreviewWebView`).
+    var waitingPage: (html: String, pageID: Int?, baseURL: URL?, note: String?)?
+
+    /// The web view's size changed: the page's column follows its width, and
+    /// a page waiting for a size loads.
+    func webViewResized() {
+        updateColumn()
+        guard let page = waitingPage, let web, web.bounds.width > 0, web.bounds.height > 0 else { return }
+        waitingPage = nil
+        GFMWebView.load(web, page.html, page.pageID, page.baseURL, self, note: page.note)
+    }
 
     /// The pane's text column, as the host last said (`TextColumn`).
     var column = TextColumn.full
@@ -521,6 +568,9 @@ struct GFMWebView: NSViewRepresentable {
     var onDiagramZoom: ((DiagramZoom) -> Void)? = nil
     /// Where a link clicked on the page goes.
     var onLinkTap: ((EditorLinkTap) -> Void)? = nil
+    /// Where the host says a note was left, and where it hears the reader go.
+    var openingPlace: (() -> Double?)? = nil
+    var onPlaceChange: ((Double) -> Void)? = nil
     func makeCoordinator() -> GFMWebLoadState { GFMWebLoadState() }
     func makeNSView(context: Context) -> WKWebView {
         Self.log("make")
@@ -528,6 +578,8 @@ struct GFMWebView: NSViewRepresentable {
         context.coordinator.web = web
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
+        context.coordinator.openingPlace = openingPlace
+        context.coordinator.onPlaceChange = onPlaceChange
         context.coordinator.observeHeadingJumps(editorID: editorID)
         context.coordinator.column = context.environment.textColumn
         return web
@@ -535,6 +587,8 @@ struct GFMWebView: NSViewRepresentable {
     func updateNSView(_ web: WKWebView, context: Context) {
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
+        context.coordinator.openingPlace = openingPlace
+        context.coordinator.onPlaceChange = onPlaceChange
         context.coordinator.observeHeadingJumps(editorID: editorID)
         context.coordinator.column = context.environment.textColumn
         context.coordinator.updateColumn()
@@ -560,6 +614,9 @@ struct GFMWebView: UIViewRepresentable {
     var onDiagramZoom: ((DiagramZoom) -> Void)? = nil
     /// Where a link clicked on the page goes.
     var onLinkTap: ((EditorLinkTap) -> Void)? = nil
+    /// Where the host says a note was left, and where it hears the reader go.
+    var openingPlace: (() -> Double?)? = nil
+    var onPlaceChange: ((Double) -> Void)? = nil
     func makeCoordinator() -> GFMWebLoadState { GFMWebLoadState() }
     func makeUIView(context: Context) -> WKWebView {
         Self.log("make")
@@ -567,6 +624,8 @@ struct GFMWebView: UIViewRepresentable {
         context.coordinator.web = web
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
+        context.coordinator.openingPlace = openingPlace
+        context.coordinator.onPlaceChange = onPlaceChange
         context.coordinator.observeHeadingJumps(editorID: editorID)
         context.coordinator.column = context.environment.textColumn
         return web
@@ -574,6 +633,8 @@ struct GFMWebView: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {
         context.coordinator.onDiagramZoom = onDiagramZoom
         context.coordinator.onLinkTap = onLinkTap
+        context.coordinator.openingPlace = openingPlace
+        context.coordinator.onPlaceChange = onPlaceChange
         context.coordinator.observeHeadingJumps(editorID: editorID)
         context.coordinator.column = context.environment.textColumn
         context.coordinator.updateColumn()
@@ -586,20 +647,21 @@ struct GFMWebView: UIViewRepresentable {
 #endif
 
 /// The preview's web view: it fills the pane and tells its state when its
-/// width changes, which moves the page's text column (`TextColumn`).
+/// size changes — which moves the page's text column (`TextColumn`), and loads
+/// a page that was waiting for a size (`GFMWebView.load`).
 final class PreviewWebView: WKWebView {
     weak var state: GFMWebLoadState?
 
     #if canImport(AppKit)
     override func setFrameSize(_ newSize: NSSize) {
-        let width = frame.width
+        let size = frame.size
         super.setFrameSize(newSize)
-        if newSize.width != width { state?.updateColumn() }
+        if newSize != size { state?.webViewResized() }
     }
     #else
     override func layoutSubviews() {
         super.layoutSubviews()
-        state?.updateColumn()
+        state?.webViewResized()
     }
     #endif
 }
@@ -668,9 +730,25 @@ extension GFMWebView {
             log("skip \(html.utf8.count) bytes — already loaded")
             return
         }
+        // **A page is first laid out at the size it is shown at.** A web view
+        // is handed its first page before it has a size (`frame (0.0, 0.0)`,
+        // in the log), and a page loaded then is given its column's margins
+        // only after it has loaded — so a page opening where its note was left
+        // would be put there in one layout and shown in another, wherever the
+        // reading column is narrower than the pane. With the column the full
+        // width, as it is by default, nothing moved: an iPhone showed the same
+        // place either way (implemented.md §51.69). So the page waits for the
+        // web view's size (`GFMWebLoadState.webViewResized`), as Edit puts its
+        // place back only once it has one; a later page replaces it.
+        guard web.bounds.width > 0, web.bounds.height > 0 else {
+            state.waitingPage = (html, pageID, baseURL, note)
+            log("hold \(html.utf8.count) bytes — the web view has no size yet")
+            return
+        }
+        state.waitingPage = nil
         state.loaded = key
         state.pageReady = false
-        let opening = state.scroll.load(note: note)
+        let opening = state.scroll.load(note: note, opening: state.openingPlace)
         installScripts(web.configuration.userContentController, page: opening.page, offset: opening.offset,
                        margins: state.marginsForNewPage())
         log("load \(html.utf8.count) bytes, frame \(web.frame.size), opening at \(opening.offset)")

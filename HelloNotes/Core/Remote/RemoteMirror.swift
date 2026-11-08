@@ -1512,16 +1512,42 @@ final class RemoteMirror {
     /// A stable per-provider/per-folder cache directory in Application Support
     /// (not Caches — the system may purge Caches, and this is the working copy).
     static func cacheDirectory(provider: String, folder: String) -> URL {
-        let base = (try? FileManager.default.url(for: .applicationSupportDirectory,
-                                                 in: .userDomainMask, appropriateFor: nil, create: true))
-            ?? FileManager.default.temporaryDirectory
         let safeFolder = folder.isEmpty ? "root" : folder
             .replacingOccurrences(of: "/", with: "_")
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-        return base
-            .appendingPathComponent("RemoteMirror", isDirectory: true)
+        return cacheBase
             .appendingPathComponent(provider.lowercased(), isDirectory: true)
             .appendingPathComponent(safeFolder.isEmpty ? "root" : safeFolder, isDirectory: true)
+    }
+
+    /// The folder every cache is made in: `Application Support/RemoteMirror`.
+    nonisolated static var cacheBase: URL {
+        ((try? FileManager.default.url(for: .applicationSupportDirectory,
+                                       in: .userDomainMask, appropriateFor: nil, create: true))
+         ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("RemoteMirror", isDirectory: true)
+    }
+
+    /// Where a cache kept as `kept` — the absolute path the open list holds —
+    /// may be today: there, and, when that is a cache in another container's
+    /// Application Support, the same provider and folder in `base`. The app's
+    /// container moves (`ContainerMoves`), its Application Support with it;
+    /// looked for only where it was kept, the cache was not found, the
+    /// collection was left out, and the next save of the list dropped it for
+    /// good — a cloud collection, and whatever it had not yet sent, gone from
+    /// the sidebar (implemented.md §51.70). Text only: which of them holds the
+    /// cache is for whoever reads its manifest.
+    nonisolated static func cacheRoots(kept: String, base: URL = cacheBase) -> [URL] {
+        let there = URL(filePath: kept, directoryHint: .isDirectory)
+        let provider = there.deletingLastPathComponent()
+        guard !there.lastPathComponent.isEmpty, !provider.lastPathComponent.isEmpty,
+              provider.deletingLastPathComponent().lastPathComponent == base.lastPathComponent
+        else { return [there] }
+        let here = base
+            .appending(path: provider.lastPathComponent, directoryHint: .isDirectory)
+            .appending(path: there.lastPathComponent, directoryHint: .isDirectory)
+        return ContainerPath.oneSpelling(here.path) == ContainerPath.oneSpelling(there.path)
+            ? [there] : [there, here]
     }
 }
 

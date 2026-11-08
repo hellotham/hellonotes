@@ -201,6 +201,14 @@ public final class EditorDocument {
     /// its text last replaced — see `caret`.
     private var hasCaret = false
 
+    /// Where the reader was: the character at the top of the view, or `nil`
+    /// for a note nobody has scrolled down. The view keeps it as scrolling
+    /// stops and as it goes, and a view made for the document — or bound to
+    /// it, on the Mac — puts it back, so a note comes back where it was left
+    /// (`ReadingPosition.swift`). A host that keeps it between launches sets
+    /// it before the document reaches a view.
+    public var readingPosition: Int?
+
     /// Substring access without snapshotting the whole document.
     public func text(in range: NSRange) -> String {
         guard range.location >= 0, range.location + range.length <= storage.length else { return "" }

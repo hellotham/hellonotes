@@ -80,6 +80,9 @@ struct EditorHost: View {
 
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @Environment(\.colorScheme) private var colorScheme
+    /// Leaving the foreground is the last moment an iPhone promises: the place
+    /// in the note is kept then (`keepReadingPosition`).
+    @Environment(\.scenePhase) private var scenePhase
     /// Documents outlive this view. On iPad this matters most: rotating between
     /// the tall and wide shells re-creates the editor, and without the store
     /// every rotation would re-parse the note and drop the caret.
@@ -265,6 +268,9 @@ struct EditorHost: View {
         // be measured differently from Edit.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: taskKey) {
+            // The note being left — or its document, for another text size or
+            // theme — keeps its place beyond the app (`ReadingPositions`).
+            keepReadingPosition()
             // **Leaving a note is a moment the text has settled** — and the one
             // nothing marked. On the Mac the tab bar takes no focus and the
             // text view is only rebound, on iPad the text view is removed
@@ -287,8 +293,23 @@ struct EditorHost: View {
             var replacedCachedText = false
             // Under the note's own name, or under the name it had: a note
             // renamed or moved keeps its document (`documentMoved`).
-            if let existing = documents.document(for: key) ?? documents.documentMoved(to: key) {
+            let kept = documents.document(for: key)
+            if let existing = kept ?? documents.documentMoved(to: key) {
                 built = existing
+                // Where the reader is now, kept just above — never where this
+                // document was when its text size or appearance last showed:
+                // back to a size or a theme, the view put that old place back
+                // and the next keep wrote it over the newer one (§51.72). A
+                // document that followed its note to a new name is the live
+                // one, and its own place is the newest.
+                if kept != nil { existing.readingPosition = ReadingPositions.position(of: note.fileURL) }
+                // And the keep on the way in went under the old name, just
+                // after the rename had moved the place to the new one: taken
+                // back, and kept where the note is now (§51.72).
+                else if existing === document, let old = builtNotePath, old != note.fileURL.path {
+                    ReadingPositions.keep(nil, of: URL(filePath: old))
+                    ReadingPositions.keep(existing.readingPosition, of: note.fileURL)
+                }
                 // Back to a note whose document the store kept: the two are
                 // settled by `DocumentLoad`'s rule. No caret to restore around
                 // a replacement here, unlike the reload below: the document is
@@ -304,6 +325,9 @@ struct EditorHost: View {
                     services: makeServices()
                 )
                 guard !Task.isCancelled else { return }
+                // Opened where it was left, last time the app ran — what the
+                // view puts back once it has a size (`ReadingPosition.swift`).
+                made.readingPosition = ReadingPositions.position(of: note.fileURL)
                 // Brought up to date if the note finished loading meanwhile.
                 load = DocumentLoad(built: made, at: generation, for: editor)
                 documents.insert(made, for: key)
@@ -347,9 +371,16 @@ struct EditorHost: View {
             // strong capture made each model keep itself alive after its tab
             // closed — holding its note open to anything that asks
             // (`EditorModel.openNoteURLs`).
-            editor.willFlush = { [weak built, weak model = editor] in
+            let keptAt = note.fileURL
+            editor.willFlush = { [weak built, weak model = editor, weak proxy] in
                 guard let built, let model else { return }
                 load.carry(built, into: model)
+                // And where the reader is, with the text: a flush is how ⌘Q
+                // reaches a note, and on the Mac a quit changes no scene phase
+                // and runs no `onDisappear`, so the place was kept only at the
+                // last switch (§51.72).
+                proxy?.recordReadingPosition()
+                ReadingPositions.keep(built.readingPosition, of: keptAt)
             }
             // The diagrams and the caret, for the zoom that opens on "the one
             // you are in" — from the document's own parse, in its own
@@ -400,6 +431,7 @@ struct EditorHost: View {
             proxy.focusFirstLine(atX: note.userInfo?["x"] as? CGFloat ?? 0)
         }
         .onDisappear {
+            keepReadingPosition()
             // Going away is a moment the text has settled, like leaving for
             // another note: what was typed goes into its own buffer before
             // `willFlush` is unhooked and nothing is left to ask for it — and
@@ -412,6 +444,9 @@ struct EditorHost: View {
             editor.liveDiagrams = nil
             inlineCompletions.cancel()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { keepReadingPosition() }
+        }
         // A completion belongs to the note it was typed in.
         .onChange(of: note.fileURL) { _, _ in
             inlineContext = nil
@@ -419,6 +454,15 @@ struct EditorHost: View {
             completionMemo.forget()
             inlineCompletions.cancel()
         }
+    }
+
+    /// Keep where the reader is in the note the document was built for —
+    /// asked of the view first, which keeps it only as scrolling stops — beyond
+    /// the app (`ReadingPositions`).
+    private func keepReadingPosition() {
+        guard let document, let builtNotePath else { return }
+        proxy.recordReadingPosition()
+        ReadingPositions.keep(document.readingPosition, of: URL(filePath: builtNotePath))
     }
 
     // MARK: - Document ↔ model sync
