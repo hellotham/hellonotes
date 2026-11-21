@@ -219,28 +219,34 @@ struct NoteOutlineList: View {
     /// is not a drop target.
     private func dropTarget(for item: NoteOutlineItem) -> DropTarget? {
         if let collection = item.collection {
-            return DropTarget(folderURL: collection.rootURL, collectionID: collection.id)
+            return DropTarget(folderURL: collection.rootURL, collectionID: collection.id,
+                              rootSpellings: collection.rootSpellings)
         }
-        if isFolder(item), let root = owningCollectionID(of: item.id) {
+        if isFolder(item), let root = owningCollection(of: item.id) {
             return DropTarget(folderURL: URL(fileURLWithPath: item.id, isDirectory: true),
-                              collectionID: root)
+                              collectionID: root.id, rootSpellings: root.rootSpellings)
         }
         return nil
     }
 
-    private func owningCollectionID(of id: String) -> String? {
-        var found: String?
+    /// The collection a folder row is in — the folder's id is spelled from
+    /// the collection's, so a prefix of it.
+    private func owningCollection(of id: String) -> Collection? {
+        var found: Collection?
         func walk(_ items: [NoteOutlineItem]) {
             for item in items where found == nil {
                 if let c = item.collection, id == c.id || id.hasPrefix(c.id + "/") {
-                    found = c.id
+                    found = c
                     return
                 }
                 walk(item.children.filter { $0.isGroup })
             }
         }
         walk(roots)
-        return found ?? scopedCollectionID.flatMap { id.hasPrefix($0) ? $0 : nil }
+        if let found { return found }
+        guard let scopedCollection, scopedCollection.id == scopedCollectionID,
+              id.hasPrefix(scopedCollection.id) else { return nil }
+        return scopedCollection
     }
 
     private func isFolder(_ item: NoteOutlineItem) -> Bool {
@@ -263,14 +269,20 @@ struct NoteOutlineList: View {
 struct DropTarget: Equatable {
     let folderURL: URL
     let collectionID: String
+    /// Every spelling of the collection's folder (`Collection.rootSpellings`).
+    let rootSpellings: [String]
 
     /// The Mac outline's rule: the same collection only, and never a move to
-    /// where the file already is.
+    /// where the file already is — both asked by place in the collection, by
+    /// text (`Collection.place`). Asked by the `standardizedFileURL`s against
+    /// the collection's `id`, a note in an iCloud vault on an iPad was refused
+    /// by every folder of its own collection: the folder is named by the id,
+    /// the note by the folder's other name (implemented.md §51.74).
     func accepts(_ source: URL) -> Bool {
-        let folder = folderURL.standardizedFileURL
-        return folder.path.hasPrefix(collectionID)
-            && source.standardizedFileURL.path.hasPrefix(collectionID)
-            && source.deletingLastPathComponent().standardizedFileURL != folder
+        guard let into = Collection.place(of: folderURL.path, in: rootSpellings),
+              let from = Collection.place(of: source.path, in: rootSpellings) else { return false }
+        let fromFolder = from.lastIndex(of: "/").map { String(from[..<$0]) } ?? ""
+        return fromFolder != into
     }
 }
 

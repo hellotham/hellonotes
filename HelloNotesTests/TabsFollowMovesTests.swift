@@ -126,25 +126,27 @@ struct TabsFollowMovesTests {
 /// band shows it (primary.md §12, item 14; implemented.md §51.36), and the
 /// selected note's in a column (§51.37).
 struct NewNoteFolderTests {
-    private let collections = ["/V/Notes", "/V/Other"]
+    /// Each collection as the sidebar names it, and its folder's one name —
+    /// a Mac's ordinary case; two names are `CollectionLookupTests`'.
+    private let collections = ["/V/Notes", "/V/Other"].map { (id: $0, spellings: [$0 + "/"]) }
     private func note(_ path: String) -> URL { URL(fileURLWithPath: path) }
 
     @Test func theBandsFolderWhileTheBandShowsIt() {
         #expect(ShellActions.newNoteFolder(band: "/V/Notes/Projects", bandShowing: true, selected: nil,
-                                           collectionIDs: collections) == "/V/Notes/Projects")
+                                           collections: collections) == "/V/Notes/Projects")
         #expect(ShellActions.newNoteFolder(band: "/V/Notes", bandShowing: true, selected: nil,
-                                           collectionIDs: collections) == "/V/Notes")
+                                           collections: collections) == "/V/Notes")
         // The band is what is on screen, whichever note is selected.
         #expect(ShellActions.newNoteFolder(band: "/V/Notes/Projects", bandShowing: true,
                                            selected: note("/V/Other/Inbox/A.md"),
-                                           collectionIDs: collections) == "/V/Notes/Projects")
+                                           collections: collections) == "/V/Notes/Projects")
     }
 
     /// A column window that was once tall kept the band's folder, and New
     /// Note in its column landed there.
     @Test func noFolderOnceTheBandHasGone() {
         #expect(ShellActions.newNoteFolder(band: "/V/Notes/Projects", bandShowing: false, selected: nil,
-                                           collectionIDs: collections) == nil)
+                                           collections: collections) == nil)
     }
 
     /// Recents is a place, not a folder: New Note goes to the root, and
@@ -152,11 +154,11 @@ struct NewNoteFolderTests {
     @Test func aPlaceIsNoFolder() {
         #expect(ShellActions.newNoteFolder(band: "hn:place:recents", bandShowing: true,
                                            selected: note("/V/Notes/Projects/A.md"),
-                                           collectionIDs: collections) == nil)
+                                           collections: collections) == nil)
         #expect(ShellActions.newNoteFolder(band: "/V/Closed/Folder", bandShowing: true, selected: nil,
-                                           collectionIDs: collections) == nil)
+                                           collections: collections) == nil)
         #expect(ShellActions.newNoteFolder(band: "/V/NotesElsewhere", bandShowing: true, selected: nil,
-                                           collectionIDs: collections) == nil)
+                                           collections: collections) == nil)
     }
 
     /// A column's sidebar selects notes, never folders — a folder row only
@@ -166,15 +168,15 @@ struct NewNoteFolderTests {
     @Test func theSelectedNotesFolderInAColumn() {
         #expect(ShellActions.newNoteFolder(band: nil, bandShowing: false,
                                            selected: note("/V/Notes/Projects/Alpha/Plan.md"),
-                                           collectionIDs: collections) == "/V/Notes/Projects/Alpha")
+                                           collections: collections) == "/V/Notes/Projects/Alpha")
         #expect(ShellActions.newNoteFolder(band: nil, bandShowing: false,
                                            selected: note("/V/Notes/Plan.md"),
-                                           collectionIDs: collections) == "/V/Notes")
+                                           collections: collections) == "/V/Notes")
         // A band's folder left over from when the window was tall does not
         // outrank the note you are reading.
         #expect(ShellActions.newNoteFolder(band: "/V/Other/Old", bandShowing: false,
                                            selected: note("/V/Notes/Projects/Plan.md"),
-                                           collectionIDs: collections) == "/V/Notes/Projects")
+                                           collections: collections) == "/V/Notes/Projects")
     }
 
     /// A note outside every open collection names no folder: the root of the
@@ -182,10 +184,10 @@ struct NewNoteFolderTests {
     @Test func aNoteOutsideTheCollectionsIsNoFolder() {
         #expect(ShellActions.newNoteFolder(band: nil, bandShowing: false,
                                            selected: note("/V/Closed/Plan.md"),
-                                           collectionIDs: collections) == nil)
+                                           collections: collections) == nil)
         #expect(ShellActions.newNoteFolder(band: nil, bandShowing: false,
                                            selected: note("/V/NotesElsewhere/Plan.md"),
-                                           collectionIDs: collections) == nil)
+                                           collections: collections) == nil)
     }
 }
 

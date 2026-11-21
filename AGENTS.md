@@ -48,13 +48,14 @@
   second (implemented.md §51.63). Read the `BUDGET …` lines it prints.
 - **iOS interface tests** — the only check that a screen actually *draws*:
   `xcodebuild test -project HelloNotes.xcodeproj -scheme HelloNotes -destination 'platform=iOS Simulator,name=HN-iPhone' -skipPackagePluginValidation -only-testing:HelloNotesUITests`
-  (~4.5 min, 15 cases and the launch test, 2026-10-12 — the run prints
-  "Executed 15 tests, with 3 tests skipped"; three skip there: the window-parity capture
+  (~6 min, 2026-11-21 — the run prints
+  "Executed 20 tests, with 4 tests skipped"; four skip there: the window-parity capture
   and the store's screenshots unless their own runs ask for them, and the
-  iPad's test — headless). **Then the iPad's, which a phone cannot run**:
+  iPad's two tests — headless). **Then the iPad's, which a phone cannot run**:
   the same command with `name=HN-iPad13` and
   `-only-testing:HelloNotesUITests/HelloNotesUITests/testTypingOnAnIPadHeldUpright`
-  (~25s). Every other case is the phone's, whose shell is chosen by width
+  `-only-testing:HelloNotesUITests/HelloNotesUITests/testTheViewModesSitInTheMiddleOfTheirBarAboveTheKeyboard`
+  (~80s, "Executed 2 tests"). Every other case is the phone's, whose shell is chosen by width
   alone, so nothing here had ever brought a keyboard up on an iPad: a note
   could not be typed in on one held upright, and no test, parity run or
   review said so (implemented.md §51.41). Run both after any change to a
@@ -385,6 +386,25 @@
   collection of 2,000 and 0.30 s to rename one, in 1.3.5 (§51.72). The Mac
   and the simulator cannot show any of this; a root reached through a
   symlink can (`SymlinkedRootTests`).
+- **A collection's identity is worked out with its folder's scope open, and
+  "is this in that collection" is asked by text — never `standardizedFileURL`
+  against the `id`.** On an iPad a folder outside the app (an Obsidian vault
+  in iCloud Drive) cannot be seen until its security scope is open, and
+  `/private` is dropped only from a path that can be seen: the launch worked
+  the identity out before `activate` opened the scope, so the id was
+  `/private/var/…` after every relaunch and `/var/…` in a session that began
+  by picking the vault. `Library.collection(containing:)` compared the note's
+  `standardizedFileURL` with that id — two answers from the disk, at two
+  moments — and every command on a note asks it first and does nothing at
+  all on `nil`: Rename and Move to Trash on a note in the vault, no alert,
+  through four builds; the picked session's id broke New Note's folder
+  instead, which was the other report (implemented.md §51.74).
+  `Collection.Identity` opens the scope and drops `/private` by text; the
+  question is `Collection.place(of:)` against `rootSpellings`, everywhere it
+  is asked — the lookup, New Note's folder, a drop target, `ownSpelling`.
+  **And a test of a command goes through the command**: §51.56's test renamed
+  through `Collection.renameNote` and passed, while `ShellActions.rename`, in
+  front of it, found no collection (`CollectionLookupTests`).
 - **`contentsOfDirectory(at:)` refuses a symlink at the end of a path** with
   ENOTDIR; `contentsOfDirectory(atPath:)` follows it. `Collection.unavailability`
   uses the second, so a vault reached through a symlink passed every health check
@@ -835,6 +855,15 @@
   the run loop between its mouse events (`MouseDrag`, RuleDragTests.swift);
   sent back to back, nothing is laid out until the button is up, and the
   half-speed rule passes.
+- **A `GeometryReader` puts what it holds at its top-leading corner, not the
+  middle** — frame the content to the reader's height as well as its width.
+  The editor's bottom bar is a 34pt `GeometryReader` row, and its 24pt
+  controls sat at the top for two and a half months: 5pt above them, 15pt
+  below, which on an iPad with the keyboard up was a blank strip over the
+  keyboard's formatting bar (implemented.md §51.75). Chrome and window parity
+  could not see it — the Mac and the iPad drew it the same wrong way — so
+  measure a bar against its spec, not only against the other platform
+  (`testTheViewModesSitInTheMiddleOfTheirBarAboveTheKeyboard`).
 - **A view whose arrangement follows its size changes its *layout*, never its
   branch.** Two branches of an `if` are two sets of views, so crossing between
   them makes every child again — a text view with the keyboard and the caret

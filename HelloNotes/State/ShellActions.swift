@@ -280,13 +280,30 @@ struct ShellActions {
     /// folders, so the tree showed Recents open (primary.md §12, item 14;
     /// implemented.md §51.36). And a column had no folder at all: New Note on
     /// the Mac went to the root from a note three folders down (§51.37).
-    nonisolated static func newNoteFolder(band containerID: String?, bandShowing: Bool,
-                              selected: URL?, collectionIDs: [String]) -> String? {
-        let folder = bandShowing ? containerID : selected?.deletingLastPathComponent().path
-        guard let folder,
-              collectionIDs.contains(where: { folder == $0 || folder.hasPrefix($0 + "/") })
-        else { return nil }
-        return folder
+    ///
+    /// **Answered as the sidebar names the folder** — `id` and the folder's
+    /// place in it, which is what `collection(forFolderID:)` and the open
+    /// folders go by. The band's container already is; the selected note is
+    /// spelled the way the walk spells it, which on an iPad is the folder's
+    /// other name (`/private/var/…` for an id of `/var/…`), so it is found by
+    /// every spelling of the collection's folder (`Collection.place`), never
+    /// compared with the id: compared, New Note from a note in a folder of an
+    /// iCloud vault went to the root (implemented.md §51.74).
+    nonisolated static func newNoteFolder(band containerID: String?, bandShowing: Bool, selected: URL?,
+                                          collections: [(id: String, spellings: [String])]) -> String? {
+        if bandShowing {
+            guard let containerID,
+                  collections.contains(where: { containerID == $0.id || containerID.hasPrefix($0.id + "/") })
+            else { return nil }
+            return containerID
+        }
+        guard let folder = selected?.deletingLastPathComponent().path else { return nil }
+        for collection in collections {
+            if let place = Collection.place(of: folder, in: collection.spellings) {
+                return place.isEmpty ? collection.id : collection.id + "/" + place
+            }
+        }
+        return nil
     }
 
     /// Open a folder in the sidebar, so something created inside it is not

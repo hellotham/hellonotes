@@ -805,7 +805,22 @@ final class Collection: Identifiable {
 
         init(of rootURL: URL) {
             if let probe = Collection.identityProbes.withLock({ $0[rootURL.path] }) { probe(Thread.isMainThread) }
-            id = Collection.canonical(rootURL).path
+            // **Worked out as the collection will see the folder: with its
+            // security scope open.** A folder outside the app on an iPad — an
+            // Obsidian vault in iCloud Drive — cannot be seen until it is, and
+            // `canonical` drops `/private` only from a path it can see. The
+            // launch worked a bookmark's identity out before
+            // `Collection.activate` opened the scope, so the id was
+            // `/private/var/…` after every relaunch and `/var/…` in a session
+            // that began by picking the vault, where the picker's scope was
+            // open: one vault, two ids, and each broke a different command
+            // (implemented.md §51.74).
+            let scoped = rootURL.startAccessingSecurityScopedResource()
+            defer { if scoped { rootURL.stopAccessingSecurityScopedResource() } }
+            // And `/private` dropped by text, so a folder that cannot be seen
+            // even so — a dead bookmark's, a provider not answering yet — is
+            // called what it is called when it can.
+            id = ContainerPath.oneSpelling(Collection.canonical(rootURL).path)
             spellings = CollectionIndexCache.rootPrefixes(rootURL)
             standardizedPath = rootURL.standardizedFileURL.path
         }
@@ -900,9 +915,24 @@ final class Collection: Identifiable {
     /// a rename then took out only the one it was handed — the old name stayed
     /// in the sidebar beside the new (the person's iPad, builds 33 and 34).
     /// Anything made, moved or renamed here is spelled once, the walk's way.
+    ///
+    /// **The folder itself too**, and by text against the spellings worked
+    /// out with the collection's identity (`rootSpellings`). New Note from a
+    /// note at the top of the collection names the folder by the sidebar's
+    /// name for it — the id — and only a path *inside* one of its names was
+    /// respelled: the note was made under the other name, one file with two
+    /// identities again (implemented.md §51.74). And it looked the folder up
+    /// on the disk on the main actor (`rootPrefixes`) whenever a path was
+    /// spelled the other way, which on an iPad is every New Note in a folder.
     nonisolated func ownSpelling(of url: URL) -> URL {
-        guard let length = Self.listedRootLength(of: rootURL, in: url) else { return url }
-        return Self.respelled(url, under: rootURL, dropping: length)
+        let path = url.path
+        let own = rootURL.path.hasSuffix("/") ? String(rootURL.path.dropLast()) : rootURL.path
+        if path == own || path.hasPrefix(own + "/") { return url }
+        for spelling in rootSpellings {
+            if path + "/" == spelling { return rootURL }
+            if path.hasPrefix(spelling) { return Self.respelled(url, under: rootURL, dropping: spelling.count) }
+        }
+        return url
     }
 
     /// Whether a URL names `url`'s file in this collection, whatever each is
@@ -919,15 +949,38 @@ final class Collection: Identifiable {
     /// implemented.md §51.72).
     nonisolated func sameFile(as url: URL) -> (URL) -> Bool {
         let spellings = rootSpellings
-        func place(_ path: String) -> String {
-            for spelling in spellings {
-                if path.hasPrefix(spelling) { return String(path.dropFirst(spelling.count)) }
-                if path + "/" == spelling { return "" }
-            }
-            return path
-        }
+        func place(_ path: String) -> String { Self.place(of: path, in: spellings) ?? path }
         let wanted = place(url.path)
         return { other in other == url || place(other.path) == wanted }
+    }
+
+    /// Where `path` is in this collection — relative to its folder, `""` for
+    /// the folder itself — or `nil` when it is not in it. **The one answer to
+    /// "is this in that collection"**, for every command that asks.
+    ///
+    /// Text only, against every spelling of the folder (`rootSpellings`), so
+    /// it answers the same whatever the disk can see when it is asked. The
+    /// shell asked by the note's `standardizedFileURL` against the
+    /// collection's `id`, and both are the disk's answers: on an iPad a
+    /// folder outside the app — an Obsidian vault in iCloud Drive — cannot be
+    /// seen until its security scope is open, and each drops `/private` only
+    /// from a path it can see. So the id kept `/private/var/…` from a launch
+    /// that worked it out before the scope was open, every note's path lost
+    /// it once the scope was, and Rename and Move to Trash found no collection
+    /// and did nothing at all — four builds running (implemented.md §51.74).
+    nonisolated func place(of path: String) -> String? {
+        Self.place(of: path, in: rootSpellings)
+    }
+
+    /// `place(of:)`, given a folder's spellings — each ending in a slash, as
+    /// `CollectionIndexCache.rootPrefixes` makes them — so a sibling whose
+    /// name only begins the same is not inside it.
+    nonisolated static func place(of path: String, in spellings: [String]) -> String? {
+        for spelling in spellings {
+            if path.hasPrefix(spelling) { return String(path.dropFirst(spelling.count)) }
+            if path + "/" == spelling { return "" }
+        }
+        return nil
     }
 
     nonisolated static func enumerate(_ rootURL: URL) -> (notes: [Note], attachments: [CollectionFile], folders: [URL])? {
@@ -3045,7 +3098,11 @@ final class Collection: Identifiable {
         rememberSelfWrite(note.fileURL)
         savesToIndex[note.fileURL] = nil              // see `indexSaved`
         keptSaves[note.fileURL] = nil                 // and `KeptSave`
-        notes.removeAll { $0.fileURL == note.fileURL }
+        // By the file, as a rename takes a note out (`adopt(renamed:)`): by
+        // the URL, a note handed in under the folder's other name was deleted
+        // and stayed listed.
+        let gone = sameFile(as: note.fileURL)
+        notes.removeAll { gone($0.fileURL) }
         revision &+= 1
         removeFromRelatedness(note.fileURL)
         embedProvider.update(notes: notes)

@@ -2225,7 +2225,7 @@ struct ContentView: View {
     private func newNote() {
         let folderID = ShellActions.newNoteFolder(band: bandContainerID, bandShowing: bandIsShowing,
                                                   selected: selectedNoteID,
-                                                  collectionIDs: library.collections.map(\.id))
+                                                  collections: library.collections.map { ($0.id, $0.rootSpellings) })
         if let folderID { actions.expand(folderID) }
         actions.createNote(in: railCollection ?? focused, folderID: folderID)
     }
@@ -2844,7 +2844,10 @@ struct ContentView: View {
                     Color.clear.frame(height: 1)
                 }
             }
-            .frame(maxWidth: .infinity)
+            // From the leading buttons, not centred between the two ends — the
+            // person's direction, 2026-11-21, and the bar as toolbars.md §3
+            // draws it.
+            .frame(maxWidth: .infinity, alignment: .leading)
             if noteIsInFront { noteMenu }
             ChromeButton(title: inspectorPresented ? "Hide Panel" : "Show Panel",
                          systemImage: "sidebar.trailing", isOn: inspectorPresented, accent: accent) {

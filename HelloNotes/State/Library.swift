@@ -257,13 +257,14 @@ final class Library {
 
     /// The collection that contains `fileURL`, if any (matched by path prefix).
     func collection(containing fileURL: URL) -> Collection? {
-        let path = fileURL.standardizedFileURL.path
-        return collections.first { collection in
-            // `collection.id` is the already-standardised root path — reuse it
-            // instead of re-standardising the root on each of the many calls.
-            let base = collection.id
-            return path == base || path.hasPrefix(base.hasSuffix("/") ? base : base + "/")
-        }
+        // By text, against every spelling of each folder (`Collection.place`)
+        // — never the URL's `standardizedFileURL` against the collection's
+        // `id`: both are the disk's answers, and on an iPad they came from two
+        // different moments. Every command on a note asks this first and does
+        // nothing at all on `nil` — Rename and Move to Trash on a note in an
+        // iCloud Obsidian vault, after every relaunch (implemented.md §51.74).
+        let path = fileURL.path
+        return collections.first { $0.place(of: path) != nil }
     }
 
     /// Focus the collection owning `fileURL` (used when a note is selected).

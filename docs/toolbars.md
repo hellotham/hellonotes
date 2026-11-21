@@ -106,7 +106,7 @@ iOS).
 | 2 | **New Note** `+` | `plus` | a menu: every way to make a note (§3.2) | not on compact |
 | 3 | **Search** 🔍 | `magnifyingglass` | a menu (§3.2). **Search Notes** — and ⌥⌘F, which also shows a hidden sidebar — turns the 🔍 into the search field, focused (120–180pt). It searches every open collection, and the results replace the tree in the primary sidebar ([primary.md](primary.md) §3.2). The placeholder "Search" is drawn by the app; a clear button (`xmark.circle.fill`) appears with text; Return leaves the field. Empty and left — focus elsewhere, or its text cleared — it folds back to the 🔍. VoiceOver: "Search all collections" | not on compact |
 | 4 | **Settings** | `gearshape` | opens Settings | not on compact |
-| 5 | **Tabs** | — | the open notes, then the collection's tools open beside them (Mind Map, Assistant — a symbol before the title); flexible; scrolls when it does not fit ([tabs.md](tabs.md)) | while a note or a tool is open; otherwise empty space |
+| 5 | **Tabs** | — | the open notes, then the collection's tools open beside them (Mind Map, Assistant — a symbol before the title); flexible, and starting from the leading buttons rather than centred (the person's direction, 2026-11-21); scrolls when it does not fit ([tabs.md](tabs.md)) | while a note or a tool is open; otherwise empty space |
 | 6 | **Note Actions** ⌄ | `chevron.down.circle` | a menu (§3.3) | while a note is in front |
 | 7 | **Show Panel / Hide Panel** | `sidebar.trailing` | shows or hides the right panel; drawn on while the panel shows | always |
 
@@ -203,8 +203,8 @@ Both are 40pt rows in the chrome grey with a rule below.
 ## 5. Status bars
 
 Both status bars use the same drawing: 12pt text and glyphs in the secondary
-label colour, a 34pt row with 5pt above and below (44pt in all), the chrome grey,
-and a rule on top. The collection bar's rule is 1pt. The editor bar draws two
+label colour, a 34pt row with 5pt above and below (44pt in all) and what it
+holds in the middle of the row, the chrome grey, and a rule on top. The collection bar's rule is 1pt. The editor bar draws two
 (§14). Their buttons are `ChromeStatusButton`: a 12pt glyph in a 22 × 18 frame
 with a larger invisible target.
 
@@ -510,3 +510,10 @@ or alert once open. The buttons that open menus are the app's.
 13. **The Mac's Settings window shows Done** beside its own close button,
     because the strip is the sheet's. Harmless, but it is a sheet's control in a
     window.
+14. ✅ ~~**The editor bar's controls sat at the top of its row**~~ (§5): a
+    `GeometryReader` puts what it holds at its top-leading corner, so the row's
+    ten spare points were all beneath the controls — 5pt above them, 15pt below.
+    With the keyboard up on an iPad, a blank strip between the bar and the
+    keyboard's formatting bar. And with a hardware keyboard, the lift clear of
+    iPadOS's floating shortcuts bar was padding outside the bar's background, so
+    the editor's white showed between them. *Fixed (implemented.md §51.75).*

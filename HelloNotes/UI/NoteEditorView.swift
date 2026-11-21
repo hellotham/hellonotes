@@ -289,15 +289,11 @@ struct NoteEditorView: View {
                 // the bar's height instead of being overlapped.
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     // The bar draws its own rule on top; a divider above it as
-                    // well made a 2pt one (toolbars.md §14, item 7).
-                    VStack(spacing: 0) {
-                        bottomBar
-                    }
-                    // Clear of iPad's floating shortcuts pill, which SwiftUI
-                    // does not report when a hardware keyboard is attached. See
-                    // `AssistantBarInset` — and note this pads the *bar* only.
-                    // The editor keeps normal keyboard avoidance.
-                    .padding(.bottom, assistantBar.height)
+                    // well made a 2pt one (toolbars.md §14, item 7). It keeps
+                    // clear of iPad's floating shortcuts bar itself, inside its
+                    // own background (`bottomBar`) — the *bar* only; the
+                    // editor keeps normal keyboard avoidance.
+                    bottomBar
                 }
                 // No `.ignoresSafeArea(.keyboard)` and no manual keyboard
                 // padding any more.
@@ -700,11 +696,17 @@ struct NoteEditorView: View {
                 if fits {
                     barRow
                 } else {
-                    ScrollView(.horizontal) { barRow }
+                    ScrollView(.horizontal) { barRow.frame(maxHeight: .infinity) }
                         .scrollIndicators(.hidden)
                 }
             }
-            .frame(width: geo.size.width, alignment: .leading)
+            // **In the middle of the row, not at its top.** A `GeometryReader`
+            // puts what it holds at its top-leading corner, and the row is
+            // shorter than the 34pt the bar gives it: the controls sat 5pt
+            // under the rule with 15pt empty beneath them — with the keyboard
+            // up on an iPad, a blank strip between the bar and the keyboard's
+            // formatting bar (toolbars.md §5; implemented.md §51.75).
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .leading)
         }
         .frame(height: barHeight)
         // `Chrome`: 12pt, the secondary label colour, the chrome grey and a
@@ -714,6 +716,14 @@ struct NoteEditorView: View {
         .foregroundStyle(Chrome.Colour.secondaryLabel)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
+        // Clear of iPad's floating shortcuts bar, which SwiftUI does not
+        // report when a hardware keyboard is attached (`AssistantBarInset`)
+        // — **inside the bar's chrome**: lifted outside it, the bar's
+        // background stopped at the bar and the editor's white showed
+        // between it and the shortcuts bar floating below. The controls keep
+        // clear of it; the background fills under it, as it fills the home
+        // indicator's inset (`chromeBackground`).
+        .padding(.bottom, assistantBar.height)
         .chromeBackground()
         .overlay(alignment: .top) {
             Rectangle().fill(Chrome.Colour.separator).frame(height: 1)

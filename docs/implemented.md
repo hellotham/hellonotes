@@ -8416,6 +8416,149 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.76 The tabs start from the leading buttons (2026-11-21)
+
+At the person's word: "can the tabs (for opened notes) be left aligned rather
+than centred?" The strip sat in the bar's flexible middle under
+`.frame(maxWidth: .infinity)`, whose alignment is the centre, so one tab
+floated halfway between ⚙ and Note Actions. It is framed `.leading` now, and
+starts after the leading buttons — as toolbars.md §3 had always drawn it. A
+strip too wide to fit still scrolls from its start. One bar on both
+platforms, so the Mac's tabs move the same way. Looked at on the iPad
+simulator with two notes open; the macOS suite and both platforms' interface
+tests, below.
+
+### 51.75 A blank strip between the editor's bar and the keyboard's, on an iPad (2026-11-21)
+
+Reported the same day: "there is also a blank line between bottom toolbar and
+edit toolbar on ipad". Looked at on the iPad simulator (`HN-iPad`, iOS 27.0)
+with the on-screen keyboard up, and measured down one column of the
+full-resolution capture (CoreGraphics, a pixel row at a time): the editor's
+bottom bar was a 1pt rule, 4pt, the 24pt mode control, **14.5pt empty**, and
+then the keyboard's formatting bar. Without the keyboard the same: 4pt above
+the control, 15pt below it before the home indicator. toolbars.md §5 says a
+34pt row with 5pt above and below, and the collection bar, measured the same
+way, holds its glyphs in the middle. The editor bar's row is a
+`GeometryReader` — since 2 September, when a `ViewThatFits` that re-measured
+at every keystroke was replaced — and a `GeometryReader` puts what it holds
+at its **top-leading** corner: the row's ten spare points all went under the
+controls.
+
+- The row is framed to the reader's height as well as its width, so it sits
+  in the middle, and a row that scrolls sideways fills the height. Measured
+  again: 9pt above the control and 9.5pt below, keyboard up or down.
+- **With a hardware keyboard** iPadOS floats its shortcuts bar at the bottom
+  of the screen, and the bar was lifted clear of it by padding *outside* its
+  background (`AssistantBarInset`), so the editor's white showed between the
+  two. The lift is inside the bar's chrome now, as the home indicator's inset
+  is (`chromeBackground`): the controls keep clear and the grey fills under.
+  **Not seen**: the simulator takes a hardware keyboard only from its pane,
+  so this half is from the code.
+- `testTheViewModesSitInTheMiddleOfTheirBarAboveTheKeyboard`, on an iPad:
+  the control's middle is the bar's, 22pt under the editor's bottom edge. Its
+  first form measured to the keyboard and found 99pt between the editor and
+  the keyboard's element, which begins at the keys, under the formatting bar;
+  and an identifier given to the bar named the mode control instead — so it
+  measures from the editor, by middles (the control's frame is its segments'
+  targets, taller than what is drawn). **Control**: with the row put back at
+  the top, "the view modes' middle is at 946.0 and the bar's at 951.0".
+- The Mac draws the same bar, and has the same correction.
+
+The macOS suite (1,048 in 159), the phone's interface suite (20 run, 4
+skipped by design — the two iPad tests among them) and, on the 13-inch iPad,
+the typing test and this one. Measured on the 11-inch afterwards: the bar as
+above, nothing else moved.
+
+### 51.74 Rename and Move to Trash did nothing in an iCloud vault on an iPad: one vault, two ids (2026-11-21)
+
+**The fourth report of it**, on 1.3.6 (36): a note made in a folder of an
+Obsidian vault in iCloud Drive could not be renamed, and the new "Untitled"
+could not be deleted — "you need to focus on the fact that the collection is
+on Obsidian Vault in iCloud". Asked what happens: **nothing** — no alert, the
+name stays, and after Move to Trash the note stays listed and open; quitting
+and opening again changes nothing. Builds 32 and 33 (§51.51–§51.52) and 35
+(§51.56) had each fixed something real and not this.
+
+**What the symptom ruled out.** Every failure inside `renameNote` and
+`deleteNote` reports an alert, and `ShellActions.delete` clears the selection
+before it touches the file. So both commands returned before either, at the
+one line they share with Duplicate and Pin — `guard let collection =
+library.collection(containing: note.fileURL) else { return }`. And a walk
+after a relaunch rebuilds every record from the disk, so a `nil` there after
+one is about the collection, not the note.
+
+**One vault, two ids.** The lookup compared the note's
+`standardizedFileURL.path` with the collection's `id`
+(`resolvingSymlinksInPath().standardizedFileURL`), and each drops `/private`
+only from a path the process can see. Probed with `sandbox-exec` on this
+Mac's own two-name folder (`/tmp` is `/private/tmp`): readable, the id and
+the note are `/tmp/…`; denied — as a folder outside the app is on an iPad
+until its security scope is open — both keep `/private/tmp/…`. On the iPad
+they came from different moments. `restoreWhatWasOpen` worked a collection's
+identity out as soon as its bookmark resolved, before `Collection.activate`
+opened the scope, so after every relaunch the id was
+`/private/var/…/iCloud~md~obsidian/Documents/Vault`; every lookup came later,
+with the scope open, when the note's path had lost `/private`. No collection,
+so nothing was done. A session that began by picking the vault had the
+picker's scope open (`openPicked`), so its id was `/var/…` — and there
+`ShellActions.newNoteFolder`, which compared the selected note's folder (as
+walked, `/private/var/…`) with the ids, found none, and New Note went to the
+root: the report before this one. Each fix moved the failure from one
+command to the other.
+
+**Why nothing caught it.** The Mac's and the simulator's folders have no
+scope to open and no `/private` twin, and §51.56's test renamed through
+`Collection.renameNote`, never through `ShellActions.rename`, which stands in
+front of it. A root reached through a link has two names the same way (the
+id is the target, the notes are spelled through the link), and on it the
+shell's lookup failed on this Mac before anything was changed:
+`aNoteMadeInAFolderCanBeRenamedAndDeleted` — no collection for the new note,
+Rename did nothing, "Untitled" still listed.
+
+- **`Collection.place(of:)`** — "is this in that collection", by text against
+  `rootSpellings`, nothing asked of the disk — and everything that asks goes
+  through it: `Library.collection(containing:)`; `newNoteFolder`, which now
+  answers in the sidebar's names (the id and the folder's place in it);
+  `DropTarget.accepts`, which refused a drop of a note on a folder of its own
+  collection the same way; and `ownSpelling`.
+- **`Collection.Identity` opens the folder's scope** while it works the
+  identity out, and drops `/private` by text, so the id is what it is when
+  the folder can be seen, whoever asks — the launch, the picker, Try Again,
+  relocate — and a vault picked again after a relaunch is the collection
+  already open, not a second one. Settings kept per collection are keyed by
+  `ContainerPath.stableName`, which already writes `/private/var` as `/var`,
+  so none moves.
+- **`ownSpelling` respells the folder itself**, not only what is in it: New
+  Note from a note at the top of the vault names the folder by the id, and
+  the note was made under the other name — found by its own test, failing
+  before the change. And by text: it looked the folder up on the disk on the
+  main actor for every path spelled the other way, which with one id is
+  every New Note in a folder on an iPad.
+- **`forget` takes a deleted note out by the file** (`sameFile`), as a rename
+  does: by the URL, a note handed in under the other name was deleted and
+  stayed listed.
+
+`CollectionLookupTests` (7): rename and delete through `ShellActions` on a
+linked vault, New Note at the top, a delete under the other name, and the
+iPad's own strings by hand — the place, New Note's folder, a drop, and the
+id of a folder that cannot be seen. **Controls**: with the old lookup, drop,
+identity and `forget` put back, the four tests aimed at them failed and the
+two pure ones passed; with the old New Note folder, the end-to-end test
+stopped at "would go to the root" and the four two-name cases failed while
+`NewNoteFolderTests`' one-name cases passed (moved to the new signature,
+expectations unchanged). The macOS suite: 1,048 tests in 159 suites; on the
+iPad simulator, this suite with `NewNoteFolderTests`, `SymlinkedRootTests`,
+`RootSpellingTests` and `OneSpellingTests`: 24 tests in 5 suites. The
+phone's interface suite (19 run, 3 skipped by design) and the iPad's typing
+test, since the shell's commands changed.
+
+**Not run on the iPad.** The mechanism is probed and its shape reproduced;
+the vault, its iCloud and the iPad's sandbox are the person's. Until a build
+has been there, this is not "fixed". To look at there, after a relaunch and
+after picking the vault again: Rename and Move to Trash on a new note in a
+folder and on an old one, New Note from a note in a folder and at the top,
+and a drag onto a folder.
+
 ### 51.73 1.3.6 (36): TestFlight, App Review, the download and the release (2026-11-08)
 
 At the person's word, in three steps: "bump to 1.3.6 (36) and commit the

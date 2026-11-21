@@ -687,6 +687,54 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    /// **The view modes sit in the middle of their bar, with the keyboard up
+    /// as without it.** The bar is a 34pt row with 5pt above and below
+    /// (toolbars.md §5), and the row was put at the *top* of its 34 — a
+    /// `GeometryReader` places what it holds at its top-leading corner — so
+    /// 10pt of it lay empty under the controls: on an iPad with the keyboard
+    /// up, a blank strip between the bar and the keyboard's formatting bar,
+    /// which the person reported (implemented.md §51.75). Measured from the
+    /// editor's bottom edge, which is the bar's top. Run on an iPad, as
+    /// `testTypingOnAnIPadHeldUpright` is.
+    @MainActor
+    func testTheViewModesSitInTheMiddleOfTheirBarAboveTheKeyboard() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        let band = app.descendants(matching: .any)["shell.band"].firstMatch
+        try XCTSkipIf(app.buttons["Tags"].waitForExistence(timeout: 5),
+                      "The band shell only — an iPad in portrait.")
+        try XCTSkipUnless(band.waitForExistence(timeout: 15),
+                          "The band shell only — an iPad in portrait.")
+        let row = app.staticTexts["Start Here"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the band lists no Start Here")
+        row.tap()
+        let editor = app.textViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 15), "the note did not open in Edit")
+        editor.tap()
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.waitForExistence(timeout: 10) else {
+            return XCTFail("no keyboard is on screen after tapping into the note — or this simulator has "
+                           + "a hardware keyboard connected, which this test cannot run with")
+        }
+        // The keyboard's animation, and the bar's move above it.
+        sleep(2)
+        let modes = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "View mode")).firstMatch
+        XCTAssertTrue(modes.exists, "no control is named View mode")
+        // The bar begins where the editor ends and is 44pt (toolbars.md §5),
+        // so its middle is 22pt under the editor's bottom edge. (Not measured
+        // to the keyboard: its element begins at the keys, under the
+        // formatting bar. And by middles: the control's frame is its
+        // segments' targets, taller than what is drawn and centred on it.)
+        let barMiddle = editor.frame.maxY + 22
+        XCTAssertEqual(modes.frame.midY, barMiddle, accuracy: 1,
+                       "the view modes' middle is at \(modes.frame.midY) and the bar's at \(barMiddle)")
+        XCTAssertLessThan(modes.frame.maxY, keyboard.frame.minY, "the view modes are not above the keyboard")
+        #else
+        throw XCTSkip("iPad layout test.")
+        #endif
+    }
+
     /// The control for the two key tests: a letter sent the way the arrows
     /// are sent — `typeKey`, a hardware key — must arrive in the note, or
     /// what follows is about the simulator's keyboard and not about the
