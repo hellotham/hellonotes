@@ -8428,6 +8428,16 @@ platforms, so the Mac's tabs move the same way. Looked at on the iPad
 simulator with two notes open; the macOS suite and both platforms' interface
 tests, below.
 
+**On the Mac too, looked at** (2026-11-22, the person: "ensure that the
+changes … also in mac version"): §51.74–§51.76 are in code both platforms
+share, and `window-parity.sh` took the Mac's window with the sample
+collection alone — 0.017% beyond noise empty and 0.065% with a note, as in
+1.3.5 — and its pictures were read, not only its verdict, since the two
+platforms had agreed while both were wrong: the Mac's tab starts after ⚙,
+and its bottom bar is a 1pt rule, 9pt, the 24pt control and 10pt, centred.
+The person's 4 open collections were unchanged. The hardware-keyboard half of §51.75 is
+the iPad's alone; the Mac has no floating shortcuts bar.
+
 ### 51.75 A blank strip between the editor's bar and the keyboard's, on an iPad (2026-11-21)
 
 Reported the same day: "there is also a blank line between bottom toolbar and
