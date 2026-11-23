@@ -1,4 +1,4 @@
-# App Store listing — 1.3.6
+# App Store listing — 1.3.7
 
 > **The copy for the version being prepared — not a record of what is live.**
 > App Store Connect is the source of truth for the live listing
@@ -54,34 +54,39 @@ Plain Markdown files you own, with AI from Apple Foundation Models on your devic
 markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,graph,local,privacy
 ```
 
-**Version** — What's New, iPhone and iPad (1.3.6 build 36, on the App Store since 8 November 2026):
+**Version** — What's New, iPhone and iPad (1.3.7 build 37, on TestFlight since 23 November 2026; not yet submitted):
 ```
-HelloNotes 1.3.6 opens each note where you left it, stops rescanning your collection every time you come back, and can pull from Git.
+HelloNotes 1.3.7 puts pictures in your notes — from your collection, your photo library or the camera — and shows Obsidian's pictures wherever they are in your vault.
 
-• A note opens where you left it — in Edit and in Preview — even after iOS has closed the app.
-• Coming back to HelloNotes no longer rescans your collection when nothing has changed, and opening it no longer shows a collection as scanning when its notes are already on screen. Changes made on your other devices still appear.
-• Pull, in the Git pane's Sync menu, brings in what was pushed from another device and merges it with what you have committed here. If the same part of a note changed in both places, or a pull would write over changes you haven't committed, it changes nothing and says which note.
-• Your recent collections, pinned notes, the note you had open and your Assistant conversations are no longer lost if iOS moves the app's data.
-• Open Recent lists each collection once.
-• Making and renaming notes in a large collection is faster.
-• Fixed: a collection from Dropbox, Box, Google Drive or OneDrive could disappear when HelloNotes opened again, if another collection's folder had been moved or renamed.
-• Fixed: HelloNotes could reopen on Library instead of the cloud collection you had open.
+• Insert Image, on the bar above the keyboard in Edit (on iPhone, at its end or in its ⋯ menu), puts a picture where you are writing: one already in your collection, linked where it is with nothing copied; one from your photo library, which keeps where it was taken unless you turn that off in the picker; or a new photo from the camera. New pictures are saved into your collection beside the note, in the folder named in Settings ▸ General ▸ Attachments — assets, unless you change it.
+• An inserted picture goes in as a paragraph of its own — inside a callout, a quote or a list item if that is where you were — with a short description made on your device. A picture from your collection that is kept only in iCloud goes in without one.
+• Obsidian's picture embeds, ![[photo.png]], are found by name anywhere in your collection, as Obsidian finds them, and shown in Edit and in Preview — beside a word, and in a list, a quote or a callout too.
+• Obsidian's picture sizes work: ![[photo.png|300]] shows a picture 300 points wide, |300x200 sets both sides, and the same goes at the end of an ordinary picture's description: ![A cat|300](cat.png).
+• Descriptions of pasted and inserted pictures are more accurate: a photo is no longer taken for a screenshot of garbled text, and text in a photo is read the right way up.
+• The tabs for your open notes start at the left of the bar, rather than in the middle.
+• A formula written $$…$$ on one line in a callout, a quote or a list item is drawn as one formula, with no dollar sign either side.
+• Fixed: in an Obsidian vault in iCloud Drive, Rename and Move to Trash could do nothing, and New Note could put the note at the top of the vault rather than in the folder you were in.
+• Fixed: on iPad, a blank strip could show between the note's bottom bar and the keyboard's bar.
+• Fixed: on iPhone, some commands in the keyboard bar's ⋯ menu had no names.
+• Fixed: after pasting a picture or a link, the caret could end up inside its description or title, and Undo could remove the wrong text.
 
-HelloNotes 1.3.6 requires iOS 27.
+HelloNotes 1.3.7 requires iOS 27.
 ```
 
-**Version** — What's New, Mac (1.3.6 build 36, on the App Store since 8 November 2026):
+**Version** — What's New, Mac (1.3.7 build 37, on TestFlight since 23 November 2026; not yet submitted):
 ```
-HelloNotes 1.3.6 opens each note where you left it, and can pull from Git.
+HelloNotes 1.3.7 puts pictures in your notes — from your collection, your Photos library or an iPhone nearby — and shows Obsidian's pictures wherever they are in your vault.
 
-• A note opens where you left it — in Edit and in Preview — after you quit HelloNotes and open it again.
-• Pull, in the Git pane's Sync menu, brings in what was pushed from another Mac or device and merges it with what you have committed here. If the same part of a note changed in both places, or a pull would write over changes you haven't committed, it changes nothing and says which note.
-• Opening HelloNotes no longer shows a collection as scanning when its notes are already on screen.
-• Making and renaming notes in a large collection is faster.
-• Fixed: a collection from Dropbox, Box, Google Drive or OneDrive could disappear when HelloNotes opened again, if another collection's folder had been moved or renamed.
-• Fixed: HelloNotes could reopen on Library instead of the cloud collection you had open.
+• Format ▸ Insert Image, in Edit, puts a picture where you are writing: one already in your collection, linked where it is with nothing copied, or one from your Photos library, saved into your collection beside the note, in the folder named in Settings ▸ General ▸ Attachments — assets, unless you change it. Both are in the command palette too.
+• With an iPhone or iPad nearby, File ▸ Import From Device — or Import from iPhone or iPad when you right-click in a note — takes a photo and puts it in the note, saved the same way.
+• An inserted picture goes in as a paragraph of its own — inside a callout, a quote or a list item if that is where you were — with a short description made on your Mac. A picture from your collection that is kept only in iCloud goes in without one.
+• Obsidian's picture embeds, ![[photo.png]], are found by name anywhere in your collection, as Obsidian finds them, and shown in Edit and in Preview — beside a word, and in a list, a quote or a callout too.
+• Obsidian's picture sizes work: ![[photo.png|300]] shows a picture 300 points wide, |300x200 sets both sides, and the same goes at the end of an ordinary picture's description: ![A cat|300](cat.png).
+• Descriptions of pasted and inserted pictures are more accurate: a photo is no longer taken for a screenshot of garbled text, and text in a photo is read the right way up.
+• The tabs for your open notes start at the left of the bar, rather than in the middle.
+• A formula written $$…$$ on one line in a callout, a quote or a list item is drawn as one formula, with no dollar sign either side.
 
-HelloNotes 1.3.6 requires macOS 27.
+HelloNotes 1.3.7 requires macOS 27.
 ```
 
 ## Description

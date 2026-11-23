@@ -800,8 +800,11 @@ entitlement; all five cloud-provider keys present (by length: 15, 32, 32, 72,
 Read through the API (`/v1/builds`, `buildBetaDetail`) with the team key; the
 key cannot list a build's beta groups (403), so the group was read from
 TestFlight's pages in the person's signed-in Chrome. Not attached to the 1.3.7
-versions and not submitted: that was not asked. **Commit before 1.3.7 goes to
-review**, so the build in review is a commit and not a working tree.
+versions and not submitted: that was not asked. **The code is committed since**,
+at the person's word: `0b6becb` holds build 37's code exactly — what changed
+after the archives, in it and after it, is documents (implemented.md §51.84,
+this section, the instructions' test counts, and 1.3.7's What's New in
+`docs/app-store-listing.md`).
 
 From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
 `f2aa985`, and `2759b02` is the bump and 1.3.6's What's New
