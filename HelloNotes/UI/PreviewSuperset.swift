@@ -79,22 +79,28 @@ nonisolated enum PreviewSuperset {
     /// embed's card (`CollectionEmbedProvider`), each once, then from a cache.
     /// A cancelled pass stops at the next line and draws nothing more.
     ///
-    /// - Parameter embeds: resolves `![[target]]` to a rendered card. `nil`
-    ///   leaves embeds to `NoteMarkdown`, which turns them into links.
+    /// - Parameter embeds: resolves `![[target]]` to a rendered card, or to
+    ///   the picture it names. `nil` leaves embeds to `NoteMarkdown`, which
+    ///   turns them into images of a path from the note's folder.
+    /// - Parameter pictures: where the pictures are seen from — the note's
+    ///   file, and the pictures folder beside it (Settings ▸ General).
     @concurrent static func apply(to text: String,
                                   isDark: Bool,
-                                  embeds: CollectionEmbedProvider?) async -> String {
+                                  embeds: CollectionEmbedProvider?,
+                                  pictures: PictureContext? = nil) async -> String {
         let pass = rendered.beginPass()
         var out: [String] = []
         var fence: String?
         var mermaid: [String]?          // body of an open ```mermaid fence
         var mathBlock: [String]?
         var callout: (kind: String, title: String, body: [String])?
+        var calloutFence: String?       // a ``` fence open inside the callout
 
         func flushCallout() {
             guard let c = callout else { return }
             out.append(Callout.html(kind: c.kind, title: c.title, body: c.body))
             callout = nil
+            calloutFence = nil
         }
 
         for line in text.components(separatedBy: "\n") {
@@ -138,7 +144,24 @@ nonisolated enum PreviewSuperset {
             // ends the run.
             if callout != nil {
                 if trimmed.hasPrefix(">") {
-                    callout?.body.append(Callout.strip(trimmed))
+                    // A callout's body is Markdown that cmark reads later, so
+                    // what this pass substitutes in a line it substitutes
+                    // here too — `![[photo.png]]` in a callout, the usual
+                    // place for a figure in an Obsidian note, reached cmark as
+                    // `![](photo.png)`, a path from the note's folder. Outside
+                    // a fence of the callout's own.
+                    let body = Callout.strip(trimmed)
+                    let fenceMark = body.trimmingCharacters(in: .whitespaces)
+                    if let open = calloutFence {
+                        if fenceMark.hasPrefix(open) { calloutFence = nil }
+                        callout?.body.append(body)
+                    } else if fenceMark.hasPrefix("```") || fenceMark.hasPrefix("~~~") {
+                        calloutFence = String(fenceMark.prefix(while: { $0 == "`" || $0 == "~" }))
+                        callout?.body.append(body)
+                    } else {
+                        callout?.body.append(await inlineConstructs(body, isDark: isDark, embeds: embeds,
+                                                                    pictures: pictures, pass: pass))
+                    }
                     continue
                 }
                 flushCallout()
@@ -177,7 +200,7 @@ nonisolated enum PreviewSuperset {
                 continue
             }
 
-            out.append(await inlineConstructs(line, isDark: isDark, embeds: embeds, pass: pass))
+            out.append(await inlineConstructs(line, isDark: isDark, embeds: embeds, pictures: pictures, pass: pass))
         }
 
         flushCallout()
@@ -194,6 +217,7 @@ nonisolated enum PreviewSuperset {
     private static func inlineConstructs(_ line: String,
                                          isDark: Bool,
                                          embeds: CollectionEmbedProvider?,
+                                         pictures: PictureContext?,
                                          pass: Int) async -> String {
         // Every construct this pass can substitute. A line holding none of
         // them is returned untouched — which is almost every line, and is what
@@ -218,7 +242,8 @@ nonisolated enum PreviewSuperset {
             } else {
                 let start = idx
                 while idx < line.endIndex, line[idx] != "`" { idx = line.index(after: idx) }
-                out += await substitute(String(line[start..<idx]), isDark: isDark, embeds: embeds, pass: pass)
+                out += await substitute(String(line[start..<idx]), isDark: isDark, embeds: embeds,
+                                        pictures: pictures, pass: pass)
             }
         }
         return out
@@ -227,10 +252,11 @@ nonisolated enum PreviewSuperset {
     private static func substitute(_ segment: String,
                                    isDark: Bool,
                                    embeds: CollectionEmbedProvider?,
+                                   pictures: PictureContext?,
                                    pass: Int) async -> String {
         var s = segment
         if s.contains("![["), let embeds {
-            s = await replaceEmbeds(in: s, isDark: isDark, embeds: embeds, pass: pass)
+            s = await replaceEmbeds(in: s, isDark: isDark, embeds: embeds, pictures: pictures, pass: pass)
         }
         if s.contains("$") {
             s = await inlineMath(in: s, isDark: isDark, pass: pass)
@@ -336,6 +362,7 @@ nonisolated enum PreviewSuperset {
     private static func replaceEmbeds(in segment: String,
                                       isDark: Bool,
                                       embeds: CollectionEmbedProvider,
+                                      pictures: PictureContext?,
                                       pass: Int) async -> String {
         let pattern = /!\[\[([^\]|]+)(\|[^\]]+)?\]\]/
         var out = ""
@@ -344,7 +371,18 @@ nonisolated enum PreviewSuperset {
             out += rest[rest.startIndex..<match.range.lowerBound]
             let target = WikiLinkSyntax.target(written: match.1, aliased: match.2 != nil)
                 .trimmingCharacters(in: .whitespaces)
-            if let tag = await embedTag(target, isDark: isDark, embeds: embeds, pass: pass) {
+            let picture = PictureEmbed(wiki: String(match.1) + (match.2.map(String.init) ?? ""))
+            if picture.isPicture {
+                // A picture is shown where it is, never as a card: found as
+                // Obsidian finds it, or said to be missing in words. Left to
+                // `NoteMarkdown`, it became a path from the note's folder —
+                // a blank where the picture was anywhere else.
+                if let pictures, let tag = await pictureTag(picture, pictures: pictures, embeds: embeds) {
+                    out += tag
+                } else {
+                    out += missingPicture(String(rest[match.range]))
+                }
+            } else if let tag = await embedTag(target, isDark: isDark, embeds: embeds, pass: pass) {
                 out += tag
             } else {
                 out += String(rest[match.range])   // unresolved: leave it visible
@@ -372,15 +410,68 @@ nonisolated enum PreviewSuperset {
         return tag
     }
 
+    /// Where a note's pictures are seen from: its file, and the pictures
+    /// folder beside it that paste and Insert Image fill (Settings ▸ General).
+    nonisolated struct PictureContext: Sendable {
+        let note: URL
+        let attachmentFolder: String
+    }
+
+    /// `![[photo.png]]` → the picture, by an address the page's web view is
+    /// served from (`PreviewPictures`), at the size the note asks for.
+    ///
+    /// A Markdown image, which cmark puts in a paragraph as it puts
+    /// `![](photo.png)` — the box Edit measures a picture by — with the size
+    /// after the last pipe of its description, Obsidian's way of sizing a
+    /// Markdown image, which the page reads (`NoteMarkdown.sizingPictures`).
+    /// The pipe is escaped: in a table's row a bare one ends the cell, and
+    /// outside one cmark reads `\|` as `|`.
+    private static func pictureTag(_ picture: PictureEmbed, pictures: PictureContext,
+                                   embeds: CollectionEmbedProvider) async -> String? {
+        guard let file = await embeds.pictureURL(for: picture, from: pictures.note,
+                                                 attachmentFolder: pictures.attachmentFolder,
+                                                 waitForList: false) else { return nil }
+        // As the file is now (`FileIO.currentResourceValues`): the date is
+        // part of the address, so a picture changed on disk is fetched again.
+        let modified = (try? FileIO.currentResourceValues(at: file, keys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        let address = PreviewPictures.address(of: file, modified: modified).absoluteString
+        let alt = picture.alt ?? file.lastPathComponent
+        var size = ""
+        if let width = picture.width { size = "\\|\(width)" + (picture.height.map { "x\($0)" } ?? "") }
+        return "![" + markdownText(alt) + size + "](<" + address + ">)"
+    }
+
+    /// An embed whose picture is not in the collection, as its own text —
+    /// escaped, so `NoteMarkdown` does not make it an image of a path that
+    /// names nothing, which the page drew as a blank.
+    private static func missingPicture(_ written: String) -> String {
+        written.replacingOccurrences(of: "[", with: "\\[").replacingOccurrences(of: "]", with: "\\]")
+    }
+
+    /// Text for inside a Markdown image's brackets — its pipes too, which
+    /// would end a table's cell.
+    private static func markdownText(_ text: String) -> String {
+        var out = ""
+        for character in text {
+            if "\\[]`*_<>|".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
     /// `$…$` → an inline image, sized and baseline-shifted so it sits in the
-    /// line rather than on top of it.
+    /// line rather than on top of it. And `$$…$$` on such a line — in a
+    /// quote, a callout, a list item, where a whole-line block never starts
+    /// — is one formula, as the editor's parser reads it (`InlineParser`):
+    /// matched `$…$` first, it was drawn with a dollar each side of it.
     private static func inlineMath(in segment: String, isDark: Bool, pass: Int) async -> String {
-        let pattern = /\$([^$\n]+)\$/
+        let pattern = /\$\$([^$\n]+)\$\$|\$([^$\n]+)\$/
         var out = ""
         var rest = Substring(segment)
         while let match = try? pattern.firstMatch(in: rest) {
             out += rest[rest.startIndex..<match.range.lowerBound]
-            let source = String(match.1)
+            let source = String(match.1 ?? match.2 ?? "")
             if let tag = await mathTag(source, fontSize: 16, isDark: isDark, class: "hn-math-inline", pass: pass) {
                 out += tag
             } else {

@@ -266,19 +266,26 @@ import UIKit
         #expect(document.text == text)
     }
 
-    /// `![[embed]]` inside a sentence stays as source, on purpose. The host
-    /// answers an `.image` whose target is not an image *file* with a
-    /// note-transclusion card — the right answer for a block on a line of its
-    /// own and an absurd one for a word inside a sentence — and nothing in the
-    /// editor can tell the two apart.
-    @Test func aWikiEmbedInsideALineStaysSource() async throws {
-        let text = "see ![[pic.png]] here\n"
-        let document = EditorDocument(text: text,
-                                      services: EditorServices(blockRenderer: SwatchRenderer(image: Self.swatch(20, 20))))
-        document.selectionDidChange(NSRange(location: (text as NSString).length, length: 0))
-        document.styleEverythingNow()
-        try await Task.sleep(for: .milliseconds(200))
-        let at = (text as NSString).range(of: "![[").location
+    /// A note's `![[embed]]` inside a sentence stays as source, on purpose.
+    /// The host answers an `.image` naming a note with a transclusion card —
+    /// the right answer for a block on a line of its own and an absurd one
+    /// for a word inside a sentence. A *picture's* embed is drawn in the line
+    /// (`WikiPictureEmbedTests`), and the line here holds one beside it: its
+    /// arrival is how the test knows the pass that would have drawn the card
+    /// has run. It slept 200 ms instead, and on a quiet machine the picture
+    /// it held then, `![[pic.png]]`, had long been drawn — the test failed run
+    /// alone and passed in the suite, where it was read before the picture
+    /// came.
+    @Test func aNoteEmbedInsideALineStaysSource() async throws {
+        let text = "see ![[Meeting notes]] and ![[pic.png]] here\n"
+        guard let (document, _) = try await laidOut(text, image: Self.swatch(20, 20), needle: "![[pic") else {
+            Issue.record("the picture beside it never arrived")
+            return
+        }
+        // Asked for in the same pass, a card would land beside the picture:
+        // a few more turns for it to.
+        for _ in 0..<5 { try await Task.sleep(for: .milliseconds(20)) }
+        let at = (text as NSString).range(of: "![[Meeting").location
         #expect(document.storage.attribute(inlineImageAttribute, at: at, effectiveRange: nil) == nil)
         #expect(document.storage.attribute(blockImageAttribute, at: at, effectiveRange: nil) == nil)
     }

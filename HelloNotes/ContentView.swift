@@ -1327,6 +1327,16 @@ struct ContentView: View {
                     }
                 }
             },
+            // The same editor's host shows the picker (`EditorHost`).
+            insertImage: showOpenQuickly ? nil : activeEditor.flatMap { editor in
+                editor.note.map { _ in
+                    { (source: EditorImageSource) in
+                        NotificationCenter.default.post(
+                            name: EditorBus.insertImage(editor: editor.editorID),
+                            object: nil, userInfo: ["source": source.rawValue])
+                    }
+                }
+            },
             note: showOpenQuickly ? nil : activeEditor?.note.map { note in
                 NoteMenuActions(
                     isBookmarked: actions.isBookmarked(note),

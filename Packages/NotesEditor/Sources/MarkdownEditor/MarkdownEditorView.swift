@@ -70,6 +70,7 @@ public struct CompletionKeyHandler {
 #if canImport(AppKit)
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 import MarkdownCore
 
 /// The host's handle on a live editor: programmatic edits (undoable, via
@@ -149,10 +150,52 @@ public final class EditorProxy {
         tv.document?.selectionDidChange(clamped)
     }
 
+    /// Give the editor the focus back with the caret at `range`, in view —
+    /// after a sheet or picker the host showed has taken it, so typing goes on
+    /// after what was inserted.
+    public func focus(at range: NSRange) {
+        guard let tv = textView else { return }
+        tv.window?.makeFirstResponder(tv)
+        setSelection(range)
+        // Laid out first, then scrolled (`reliablyScroll`): a caret far below
+        // what TextKit 2 has laid out is placed by an estimate, and
+        // `scrollRangeToVisible` stopped short of it.
+        tv.reliablyScroll(to: tv.selectedRange())
+        tv.updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    /// Whether the editor on screen shows `document`. The editor is one view
+    /// for every note, so work that took a while — a photo loading — asks
+    /// before it edits through here, or its edit lands in whichever note is
+    /// open by then.
+    public func shows(_ document: EditorDocument) -> Bool { textView?.document === document }
+
     /// Where the caret is. Lets a deferred rewrite (an image's alt text, a
     /// pasted link's title) name *which* occurrence it meant.
     public func selection() -> NSRange {
         textView?.selectedRange() ?? NSRange(location: NSNotFound, length: 0)
+    }
+
+    /// A deferred rewrite — an image's alt text, a pasted link's title — in
+    /// `document`, near the caret, with the caret kept where it was in the
+    /// text (`EditorDocument.selection(_:across:becoming:)`), not at the
+    /// offset it had. A document no longer on screen has no caret to keep.
+    ///
+    /// `near` is where the text being replaced ends, when the host knows —
+    /// the caret otherwise, which a host that put blank lines after what it
+    /// inserted has already moved past it.
+    @discardableResult
+    public func replaceFirst(_ needle: String, with replacement: String, in document: EditorDocument,
+                             near hint: Int? = nil) -> Bool {
+        guard let tv = textView, tv.document === document else {
+            return document.replaceFirst(needle, with: replacement, near: hint) != nil
+        }
+        let caret = selection()
+        guard let replaced = document.replaceFirst(needle, with: replacement, near: hint ?? caret.location)
+        else { return false }
+        setSelection(EditorDocument.selection(caret, across: replaced,
+                                              becoming: (replacement as NSString).length))
+        return true
     }
 
     /// Offer ghost text at `location`, or clear it with `nil`.
@@ -852,6 +895,12 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
     /// into `onPasteMarkdown` at the call site, so the two hosts took different
     /// paste arguments for identical behaviour.
     var onPasteImage: (() -> String?)?
+    /// Save a picture the system hands the editor — Continuity Camera's photo
+    /// from an iPhone or iPad, or a service's image — and return the Markdown
+    /// link to insert at the caret. Given the picture's bytes and type: it
+    /// does not come through `NSPasteboard.general`, so the paste hook cannot
+    /// read it. Nil, and the editor accepts no pictures that way.
+    var onImportImage: ((Data, UTType) -> String?)?
 
     /// Reports the caret's autocomplete context (`[[link` / `#tag`) and its
     /// rect in this view's enclosing scroll-view coordinates, or nil.
@@ -973,6 +1022,19 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
 
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event)
+        // Continuity Camera's place: AppKit fills an item with this identifier
+        // with Take Photo, Scan Documents and Add Sketch for the devices near
+        // by, and hands the result to `readSelection(from:)`. With a caret as
+        // well as a selection — a picture usually goes where nothing is
+        // selected.
+        if isEditable, onImportImage != nil, let menu,
+           !menu.items.contains(where: { $0.identifier == NSMenuItem.importFromDeviceIdentifier }) {
+            let device = NSMenuItem(title: String(localized: "Import from iPhone or iPad"),
+                                    action: nil, keyEquivalent: "")
+            device.identifier = NSMenuItem.importFromDeviceIdentifier
+            menu.addItem(.separator())
+            menu.addItem(device)
+        }
         let selection = selectedRange()
         guard selection.length > 0 else { return menu }
 
@@ -1153,6 +1215,38 @@ public final class MarkdownTextView: NSTextView, ViewportFollowing {
         pasteAsPlainText(sender)   // never import rich text into Markdown
     }
 
+    /// **Continuity Camera.** AppKit offers "Import from iPhone or iPad" to a
+    /// responder that says it takes a picture back, and hands the photo to
+    /// `readSelection(from:)`. This view takes pictures only through the host
+    /// (`onImportImage`), which saves them in the collection; text and
+    /// everything else stay `NSTextView`'s.
+    public override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?,
+                                        returnType: NSPasteboard.PasteboardType?) -> Any? {
+        if sendType == nil, let returnType, isEditable, onImportImage != nil,
+           Self.pictureTypes.contains(returnType) {
+            return self
+        }
+        return super.validRequestor(forSendType: sendType, returnType: returnType)
+    }
+
+    public override func readSelection(from pboard: NSPasteboard) -> Bool {
+        guard let onImportImage,
+              let type = Self.pictureTypes.first(where: { pboard.availableType(from: [$0]) != nil }),
+              let data = pboard.data(forType: type),
+              let uti = UTType(type.rawValue)
+        else { return super.readSelection(from: pboard) }
+        guard let markdown = onImportImage(data, uti) else { return false }
+        performEdit(replacing: selectedRange(), with: markdown)
+        return true
+    }
+
+    /// The picture types taken from the system, in the order preferred: a
+    /// photo's own encoding before a re-encoded one.
+    static let pictureTypes: [NSPasteboard.PasteboardType] = [
+        NSPasteboard.PasteboardType(UTType.jpeg.identifier), NSPasteboard.PasteboardType(UTType.heic.identifier),
+        .png, .tiff,
+    ]
+
     /// Copy only the plain-text Markdown source. This is a rich-text view (our
     /// styling lives in the storage), so the default copy would also write an
     /// RTF flavor carrying the concealed 0.1pt / clear-color marker runs —
@@ -1250,6 +1344,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
     private var onPasteMarkdown: (() -> String?)?
     private var selectionMenuItemsBuilder: ((String) -> [EditorMenuItem])?
     private var onPasteImageHandler: (() -> String?)?
+    private var onImportImageHandler: ((Data, UTType) -> String?)?
     private var onInlineContext: ((EditorDocument.InlineContext?, CGRect) -> Void)?
     private var onRewriteSelectionHandler: ((NSRange) -> Void)?
     private var onDiagramZoomHandler: ((DiagramZoom) -> Void)?
@@ -1318,6 +1413,17 @@ public struct MarkdownEditorView: NSViewRepresentable {
     public func onPasteImage(_ handler: @escaping () -> String?) -> Self {
         var copy = self; copy.onPasteImageHandler = handler; return copy
     }
+
+    /// Save a picture the system hands the editor — Continuity Camera's photo
+    /// from an iPhone or iPad — and return the Markdown link to insert.
+    public func onImportImage(_ handler: @escaping (Data, UTType) -> String?) -> Self {
+        var copy = self; copy.onImportImageHandler = handler; return copy
+    }
+
+    /// Insert Image from the editor's own bar — which the Mac's editor does
+    /// not have: its Format menu asks the host on the bus
+    /// (`EditorBus.insertImage`). Here so a host built for both is one.
+    public func onInsertImage(_ handler: @escaping (EditorImageSource) -> Void) -> Self { self }
 
     /// Host actions added to the selection's menu. Called with the selected
     /// text each time the menu is built, so the host can decide per selection
@@ -1392,6 +1498,7 @@ public struct MarkdownEditorView: NSViewRepresentable {
         textView.onCaretEscapeTop = onCaretEscapeTopHandler
         textView.onPasteMarkdown = onPasteMarkdown
         textView.onPasteImage = onPasteImageHandler
+        textView.onImportImage = onImportImageHandler
         textView.selectionMenuItems = selectionMenuItemsBuilder
         textView.onInlineContextChange = onInlineContext
         textView.onRewriteSelection = onRewriteSelectionHandler
@@ -1649,6 +1756,7 @@ extension MarkdownTextView: NSAccessibilityCustomRotorItemSearchDelegate {
 #else
 import UIKit
 import SwiftUI
+import UniformTypeIdentifiers
 import MarkdownCore
 
 /// A TextKit 2 `UITextView` bound to an `EditorDocument`'s storage.
@@ -1991,6 +2099,10 @@ public final class MarkdownUITextView: UITextView {
     /// The host's chance to convert a pasted URL or rich text into Markdown.
     /// Nil, or a nil return, falls through to the plain-string paste.
     var onPasteMarkdown: (() -> String?)?
+    /// The host's picker for a picture from `EditorImageSource` — asked by the
+    /// keyboard bar's Insert Image menu (`installFormattingAssistant`), which
+    /// is made before the host's closures arrive, so it asks at the tap.
+    var onInsertImage: ((EditorImageSource) -> Void)?
 
     public override func paste(_ sender: Any?) {
         // Images first: a pasteboard carrying an image often also carries a
@@ -2684,10 +2796,62 @@ public final class EditorProxy {
         tv.document?.selectionDidChange(clamped)
     }
 
+    /// Give the editor the focus back with the caret at `range`, in view —
+    /// after a sheet or picker the host showed has taken it (and the keyboard
+    /// with it), so typing goes on after what was inserted.
+    public func focus(at range: NSRange) {
+        guard let tv = textView else { return }
+        _ = tv.becomeFirstResponder()
+        setSelection(range)
+        // Laid out first, then scrolled (`reliablyScroll`): a caret far below
+        // what TextKit 2 has laid out is placed by an estimate, and
+        // `scrollRangeToVisible` stopped short of it.
+        tv.reliablyScroll(to: tv.selectedRange)
+    }
+
+    /// Whether the editor on screen shows `document`. The editor is one view
+    /// for every note, so work that took a while — a photo loading — asks
+    /// before it edits through here, or its edit lands in whichever note is
+    /// open by then.
+    public func shows(_ document: EditorDocument) -> Bool { textView?.document === document }
+
     /// Where the caret is. Lets a deferred rewrite (an image's alt text, a
     /// pasted link's title) name *which* occurrence it meant.
     public func selection() -> NSRange {
         textView?.selectedRange ?? NSRange(location: NSNotFound, length: 0)
+    }
+
+    /// A deferred rewrite — an image's alt text, a pasted link's title — in
+    /// `document`, near the caret, with the caret kept where it was in the
+    /// text (`EditorDocument.selection(_:across:becoming:)`): an edit moves
+    /// a `UITextView`'s caret to its end, and one into the storage keeps the
+    /// caret's *offset* — an alt text filled in a second after a picture went
+    /// in left the caret inside the alt text. A document no longer on screen
+    /// has no caret to keep.
+    ///
+    /// **Through UIKit's own editing (`performEdit`), never into the
+    /// storage.** UIKit keeps the undo stack here, by offsets, and a rewrite
+    /// it never saw left the stack's next undo — the insertion before it —
+    /// cutting the wrong range: `Start ![a cat](p.png)` undid to
+    /// `Start.png)` (`DeferredRewriteUndoTests`). The Mac's text view undoes
+    /// on the document's own manager, where `EditorDocument.replaceFirst`
+    /// registers the inverse, so the storage is right there.
+    ///
+    /// `near` is where the text being replaced ends, when the host knows —
+    /// the caret otherwise, which a host that put blank lines after what it
+    /// inserted has already moved past it.
+    @discardableResult
+    public func replaceFirst(_ needle: String, with replacement: String, in document: EditorDocument,
+                             near hint: Int? = nil) -> Bool {
+        guard let tv = textView, tv.document === document else {
+            return document.replaceFirst(needle, with: replacement, near: hint) != nil
+        }
+        let caret = selection()
+        guard let replaced = document.firstRange(of: needle, near: hint ?? caret.location),
+              tv.performEdit(replacing: replaced, with: replacement) else { return false }
+        setSelection(EditorDocument.selection(caret, across: replaced,
+                                              becoming: (replacement as NSString).length))
+        return true
     }
 }
 
@@ -2900,6 +3064,18 @@ public struct MarkdownEditorView: View {
         var copy = self; copy.representable = representable.onPasteImage(handler); return copy
     }
 
+    /// Show the host's picker for a picture — asked by the keyboard bar's
+    /// Insert Image menu. The host puts a new picture in the collection and
+    /// inserts the link at the caret.
+    public func onInsertImage(_ handler: @escaping (EditorImageSource) -> Void) -> Self {
+        var copy = self; copy.representable = representable.onInsertImage(handler); return copy
+    }
+
+    /// A picture the system hands the editor — Continuity Camera's, on the
+    /// Mac. iOS hands an editor no picture that way (paste and Insert Image
+    /// are its routes). Here so a host built for both is one.
+    public func onImportImage(_ handler: @escaping (Data, UTType) -> String?) -> Self { self }
+
     /// Convert a pasted URL or rich text to Markdown.
     public func onPasteMarkdown(_ handler: @escaping () -> String?) -> Self {
         var copy = self; copy.representable = representable.onPasteMarkdown(handler); return copy
@@ -2952,6 +3128,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
     private var onDiagramZoomHandler: ((DiagramZoom) -> Void)?
     private var onLinkTap: ((EditorLinkTap) -> Void)?
     private var onPasteImage: (() -> String?)?
+    private var onInsertImage: ((EditorImageSource) -> Void)?
     private var onPasteMarkdown: (() -> String?)?
     private var selectionMenuItems: ((String) -> [EditorMenuItem])?
     private var editorProxy: EditorProxy?
@@ -2986,6 +3163,10 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
 
     func onPasteImage(_ handler: @escaping () -> String?) -> Self {
         var copy = self; copy.onPasteImage = handler; return copy
+    }
+
+    func onInsertImage(_ handler: @escaping (EditorImageSource) -> Void) -> Self {
+        var copy = self; copy.onInsertImage = handler; return copy
     }
 
     func onPasteMarkdown(_ handler: @escaping () -> String?) -> Self {
@@ -3037,6 +3218,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onDiagramZoom = onDiagramZoomHandler
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
+        tv.onInsertImage = onInsertImage
         tv.onPasteMarkdown = onPasteMarkdown
         tv.onInlineContextChange = onInlineContext
         tv.onInlineCompletionRequest = onInlineCompletionRequest
@@ -3096,6 +3278,7 @@ struct MarkdownEditorRepresentable: UIViewRepresentable {
         tv.onDiagramZoom = onDiagramZoomHandler
         tv.onLinkTap = onLinkTap
         tv.onPasteImage = onPasteImage
+        tv.onInsertImage = onInsertImage
         tv.onPasteMarkdown = onPasteMarkdown
         tv.onInlineContextChange = onInlineContext
         tv.onInlineCompletionRequest = onInlineCompletionRequest

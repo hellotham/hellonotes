@@ -1028,7 +1028,7 @@ import UIKit
         let target: String
         let image: PlatformImage
         func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? {
-            if case .image(let asked) = kind, asked == target { return image }
+            if case .image(let asked, _, _, _) = kind, asked == target { return image }
             return nil
         }
     }

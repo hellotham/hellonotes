@@ -23,6 +23,9 @@ tables · fenced code with syntax highlighting · footnotes · strikethrough.
 | `[[Note#Heading]]` | link to a section |
 | `![[Note]]` | embed a note |
 | `![[Note#Heading]]` | embed a section |
+| `![[photo.png]]` | show a picture, by its name |
+| `![[photo.png\|300]]` | a picture 300 points wide; `\|300x200` sets both sides |
+| `![alt\|300](image)` | the same size, on an ordinary picture |
 | `#tag` | tag, in the body |
 | `> [!note]` | callout |
 | `> [!tip]-` | callout, collapsed |

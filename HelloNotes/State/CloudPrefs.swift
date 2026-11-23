@@ -10,12 +10,26 @@
 //  Requires the iCloud (Key-Value storage) capability + the
 //  `com.apple.developer.ubiquity-kvstore-identifier` entitlement.
 //
+//  **What the person set, never what a launch was handed.** Only the app's own
+//  domain is pushed and compared with (`ownValues`), and only a value of the
+//  kind the app writes is pulled (`isSetting`). `object(forKey:)` reads the
+//  launch's arguments first, and a capture session passes the settings it
+//  draws with as arguments — so `window-parity.sh`'s `-textScale 1` went to
+//  iCloud as the person's text size, and the next launch pulled it into their
+//  own settings, on every device it reached (2026-11-22). A value that is not
+//  a setting is put right from this device's own when it is pulled.
+//
 
 import Foundation
+import os
 
 @MainActor
 final class CloudPrefs {
     static let shared = CloudPrefs()
+
+    /// One line when a repair happens (`pullFromCloud`) — rare, and worth
+    /// being able to see in `log show` afterwards.
+    nonisolated private static let log = Logger(subsystem: "com.hellotham.HelloNotes", category: "CloudPrefs")
 
     private let store = NSUbiquitousKeyValueStore.default
     private let defaults = UserDefaults.standard
@@ -87,12 +101,45 @@ final class CloudPrefs {
         }
     }
 
-    /// Push the current local prefs to the cloud (call on background / quit).
+    /// Push the current local prefs to the cloud (call on background / quit) —
+    /// what the person set, and nothing a launch was handed (`ownValues`).
     func push() {
-        for key in keys where defaults.object(forKey: key) != nil {
-            store.set(defaults.object(forKey: key), forKey: key)
+        for (key, value) in Self.pushable(ownValues(), keys: keys) {
+            store.set(value, forKey: key)
         }
         store.synchronize()
+    }
+
+    /// What the person set: the app's own domain, never the search list.
+    /// `object(forKey:)` answers from the launch's arguments first, so a
+    /// capture session's `-textScale 1` was pushed to iCloud as the person's
+    /// text size, and the next launch pulled it into their own settings — and
+    /// so did every device the store reached (2026-11-22). A launch argument
+    /// is that launch's alone.
+    private func ownValues() -> [String: Any] {
+        guard let name = Bundle.main.bundleIdentifier else { return [:] }
+        return defaults.persistentDomain(forName: name) ?? [:]
+    }
+
+    /// The keys written as numbers and as switches; every other is a string.
+    private static let numeric: Set<String> = ["textScale", "wrapGuide", "increaseContrast", "showInlineTitle"]
+
+    /// Whether `value` is what the app writes for `key`: a number (a switch is
+    /// one) where it writes one, a string where it writes a string. A launch
+    /// argument is always a string — `-textScale 1` is `"1"`, `-increaseContrast
+    /// NO` is `"NO"` — so a string under a number's key came from a launch, not
+    /// from a person. Read back, it is not even the same setting:
+    /// `showInlineTitle` is read `as? Bool ?? true`, and `"NO"` turned the
+    /// title on.
+    nonisolated static func isSetting(_ value: Any, for key: String) -> Bool {
+        numeric.contains(key) ? value is NSNumber : value is String
+    }
+
+    /// The values `own` holds for `keys` that are settings (`isSetting`).
+    nonisolated static func pushable(_ own: [String: Any], keys: [String]) -> [String: Any] {
+        var out: [String: Any] = [:]
+        for key in keys { if let value = own[key], isSetting(value, for: key) { out[key] = value } }
+        return out
     }
 
     @objc private func cloudChangedExternally(_ note: Notification) {
@@ -103,18 +150,39 @@ final class CloudPrefs {
     private func pullFromCloud() {
         isApplyingRemote = true
         defer { isApplyingRemote = false }
+        let own = ownValues()
         var changed: [String] = []
+        var repaired: [String] = []
         for key in keys {
             guard let value = store.object(forKey: key) else { continue }
-            // Write only what differs. Setting an identical value still posts
-            // `UserDefaults.didChangeNotification`, and `localChanged` hops to
-            // the main actor *after* the `defer` above has cleared the guard —
-            // so an unconditional write echoes straight back out as a push.
-            if let current = defaults.object(forKey: key) as? NSObject,
+            // Not a setting: a launch's argument an earlier build pushed as
+            // the person's. The person's own goes back over it — which is
+            // what puts it right on their other devices too — or, with none
+            // here, it is taken away.
+            guard Self.isSetting(value, for: key) else {
+                if let mine = Self.pushable(own, keys: [key])[key] {
+                    store.set(mine, forKey: key)
+                } else {
+                    store.removeObject(forKey: key)
+                }
+                repaired.append(key)
+                continue
+            }
+            // Write only what differs from what the person set. Setting an
+            // identical value still posts `UserDefaults.didChangeNotification`,
+            // and `localChanged` hops to the main actor *after* the `defer`
+            // above has cleared the guard — so an unconditional write echoes
+            // straight back out as a push.
+            if let current = own[key] as? NSObject,
                let incoming = value as? NSObject,
                current.isEqual(incoming) { continue }
             defaults.set(value, forKey: key)
             changed.append(key)
+        }
+        if !repaired.isEmpty {
+            store.synchronize()
+            // Key names only — the values are the person's.
+            Self.log.notice("Put the person's own back over \(repaired.count) synced key(s) holding a launch argument: \(repaired.joined(separator: ", "), privacy: .public)")
         }
         guard !changed.isEmpty else { return }
         NotificationCenter.default.post(name: Self.didPullFromCloud, object: self,

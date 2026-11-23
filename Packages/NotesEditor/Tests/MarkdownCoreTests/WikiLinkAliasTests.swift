@@ -41,6 +41,22 @@ struct WikiLinkAliasTests {
         #expect(text.substring(with: prefix) == "Examples/Nested Note|")
     }
 
+    /// A picture embed's pipe holds a size or a description, never the name it
+    /// shows: `![[photo.png|300]]` not drawn — its picture not in the
+    /// collection — reads `photo.png`, not `300`.
+    @Test func aPictureEmbedHidesItsSizeAndShowsItsName() {
+        for (written, hidden) in [("![[photo.png|300]]", "|300"),
+                                  ("![[assets/photo.png|A cat|120]]", "|A cat|120"),
+                                  ("| ![[photo.png\\|300]] |", "\\|300")] {
+            let text = written as NSString
+            let nodes = InlineParser.parse(text, in: NSRange(location: 0, length: text.length))
+            let node = nodes.first { if case .wikiLink(_, let isEmbed) = $0.kind { return isEmbed }; return false }!
+            let markers = node.markerRanges.map { text.substring(with: $0) }
+            #expect(markers.contains(hidden), "\(written): \(markers)")
+            #expect(!markers.contains { $0.hasSuffix("png|") || $0.hasSuffix("png\\|") }, "\(written): \(markers)")
+        }
+    }
+
     /// A pipe outside the link is not a marker — the scan stops at `]]`.
     @Test func aPipeAfterTheLinkIsNotSwallowed() {
         let text = "[[Organising]] | next" as NSString

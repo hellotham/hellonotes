@@ -23,6 +23,42 @@ the language selector and the dictation button, and they stay there when a
 hardware keyboard is attached. On iPhone they are on a bar of their own directly
 above the keys. On the Mac they are in the **Format** menu.
 
+## Pictures
+
+**Insert Image** puts a picture in the note where the caret is, as a paragraph
+of its own — at the end of the note when no caret is in it, and never inside
+its properties. In a callout, a quote or a list item it stays inside it. On iPhone and iPad it is on the bar above the keyboard — on iPhone
+in the bar's **⋯** menu when the row is full — and on the Mac it is
+**Format ▸ Insert Image**. It is there in Edit; in Markdown and Split, type the
+link.
+
+- **Choose from Collection…** lists the pictures already in this collection,
+  with a field to find one by its name or folder, and links the one you choose
+  where it is. Nothing is copied.
+- **Choose from Photos…** saves the photo into the collection and links it. On
+  iPhone and iPad it keeps where it was taken unless you turn that off in the
+  picker: **⋯ ▸ Options ▸ Location** (the picker says "Location Included" or
+  "Location Not Included").
+- **Take Photo…**, on an iPhone or iPad, does the same with a new photo, which
+  carries no location. On a Mac, choose **File ▸ Import From Device**, or
+  right-click in the note and choose **Import from iPhone or iPad**.
+
+A new picture goes where a pasted one does: an `assets` folder beside the note,
+unless **Settings ▸ General ▸ Attachments** says otherwise. A photo that other
+apps cannot show, such as an iPhone's HEIC, is saved as JPEG. A moment later
+its description appears in the brackets, worked out on the device: the words in
+the picture, or what it shows.
+
+A picture written the Obsidian way, `![[photo.png]]`, is shown as well, in Edit
+and in Preview. Obsidian usually writes only the picture's name, so it is
+found by name anywhere in the collection — while the collection lists its
+other files (**Show Non-Note Files**, on unless you turn it off). With that
+off, it is found only beside the note, in the collection's top folder or in
+the pictures folder. `![[photo.png|300]]` shows it 300 points wide, never wider
+than the text, and `|300x200` sets both sides — and the same goes at the end of
+an ordinary picture's description, as Obsidian writes it there:
+`![A cat|300](cat.png)`.
+
 ## The four views
 
 | View | What it is for |

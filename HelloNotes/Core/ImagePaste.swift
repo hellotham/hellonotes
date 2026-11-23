@@ -18,14 +18,10 @@ import AppKit
 import UIKit
 #endif
 
-/// Saves images pasted into the editor as files in the collection, so notes stay
-/// plain text that references real image files (never embedded blobs).
+/// Saves the pictures put into the editor — pasted, or from Insert Image — as
+/// files in the collection, so notes stay plain text that references real
+/// image files (never embedded blobs).
 enum ImagePaste {
-    /// Save an image from `pasteboard` beside `noteURL`, returning a Markdown
-    /// image link relative to the note. `subfolder` is the folder to store the
-    /// image in (e.g. `"assets"`), created if needed; an empty string saves the
-    /// image in the same folder as the note. Returns `nil` when the pasteboard
-    /// holds no image.
     /// Where a pasted picture goes, and the Markdown that shows it — chosen
     /// at once, because the paste returns its Markdown at once. The picture is
     /// written by `write(_:to:)`, off the main actor: a coordinated create on
@@ -38,13 +34,18 @@ enum ImagePaste {
     /// folder not listed yet a look waits for the provider. A name already on
     /// disk is the write's to find: it takes the next one free, and the paste
     /// puts the Markdown right (implemented.md §51.67).
-    static func place(nextTo noteURL: URL, subfolder: String, timestamp: Date) -> Placement {
+    ///
+    /// A picture chosen for a note — from the photo library, the camera, an
+    /// iPhone near a Mac — is placed the same way, under a `stem` and type of
+    /// its own (`Photo-….jpg`); a pasted one is `Pasted-….png`, as before.
+    static func place(nextTo noteURL: URL, subfolder: String, timestamp: Date,
+                      stem: String = "Pasted", ext: String = "png") -> Placement {
         let folderName = subfolder.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
         let noteFolder = noteURL.deletingLastPathComponent()
         let targetDir = folderName.isEmpty
             ? noteFolder
             : noteFolder.appendingPathComponent(folderName, isDirectory: true)
-        let first = Placement(folder: targetDir, folderName: folderName,
+        let first = Placement(folder: targetDir, folderName: folderName, stem: stem, ext: ext,
                               stamp: Int(timestamp.timeIntervalSince1970), counter: 1)
         return reserved.withLock { taken in
             var candidate = first
@@ -60,40 +61,49 @@ enum ImagePaste {
         let folder: URL
         /// From the note's folder — what the Markdown names.
         let relativePath: String
+        /// `relativePath` as a Markdown link writes it (`PictureFile.linkPath`):
+        /// an attachment folder named with a space made a link nothing drew.
+        let linkPath: String
         let markdown: String
         /// What the name is made of, for the next one along.
         private let folderName: String
+        private let stem: String
+        private let ext: String
         private let stamp: Int
         private let counter: Int
 
-        fileprivate init(folder: URL, folderName: String, stamp: Int, counter: Int) {
-            let name = counter == 1 ? "Pasted-\(stamp).png" : "Pasted-\(stamp)-\(counter).png"
+        fileprivate init(folder: URL, folderName: String, stem: String, ext: String, stamp: Int, counter: Int) {
+            let name = counter == 1 ? "\(stem)-\(stamp).\(ext)" : "\(stem)-\(stamp)-\(counter).\(ext)"
             self.url = folder.appendingPathComponent(name)
             self.folder = folder
             self.relativePath = folderName.isEmpty ? name : "\(folderName)/\(name)"
-            self.markdown = "![](\(relativePath))"
+            self.linkPath = PictureFile.linkPath(relativePath)
+            self.markdown = "![](\(linkPath))"
             self.folderName = folderName
+            self.stem = stem
+            self.ext = ext
             self.stamp = stamp
             self.counter = counter
         }
 
         /// The same picture under the next name.
         fileprivate var next: Placement {
-            Placement(folder: folder, folderName: folderName, stamp: stamp, counter: counter + 1)
+            Placement(folder: folder, folderName: folderName, stem: stem, ext: ext, stamp: stamp, counter: counter + 1)
         }
     }
 
-    /// Write `pngData` where `placement` says, off the main actor — or, when
-    /// that name is taken on disk (`place` does not look), under the next one
-    /// free — and say where: `nil` when nothing was written.
-    static func write(_ pngData: Data, to placement: Placement) async -> Placement? {
+    /// Write `bytes` — a picture's, of the type its placement names —
+    /// where `placement` says, off the main actor — or, when that name is
+    /// taken on disk (`place` does not look), under the next one free — and
+    /// say where: `nil` when nothing was written.
+    static func write(_ bytes: Data, to placement: Placement) async -> Placement? {
         let (written, held) = await FileIO.onLane(for: placement.url) { () -> (Placement?, [String]) in
             try? FileIO.createDirectory(at: placement.folder)
             var candidate = placement
             var held = [placement.url.path]
             for _ in 0..<64 {
                 do {
-                    try FileIO.create(pngData, at: candidate.url)
+                    try FileIO.create(bytes, at: candidate.url)
                     return (candidate, held)
                 } catch let error as CocoaError where error.code == .fileWriteFileExists {
                     // Taken on disk: the next name that no other paste holds.
@@ -112,6 +122,12 @@ enum ImagePaste {
         }
         reserved.withLock { taken in held.forEach { taken.remove($0) } }
         return written
+    }
+
+    /// Give back a name `place` held, for a picture that will not be written
+    /// after all.
+    static func release(_ placement: Placement) {
+        reserved.withLock { _ = $0.remove(placement.url.path) }
     }
 
     /// Names chosen and not yet written.

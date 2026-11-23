@@ -18,11 +18,11 @@ GitHub-identical Preview + parity tests).
 All three are run **from the repository root**, not from this directory.
 
 ```bash
-swift test --package-path Packages/NotesEditor                 # 559 tests, 61 suites
+swift test --package-path Packages/NotesEditor                 # 599 tests, 68 suites
 cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package \
-  -destination 'platform=iOS Simulator,name=HN-iPad'           # 533 tests — run these too
-# ^ prints THREE bundle summaries (292/35, 215/18, 26/4 on 2026-10-12). The total
-#   is their sum; reading only the last one says "26 in 4" and looks exactly like
+  -destination 'platform=iOS Simulator,name=HN-iPad'           # 577 tests — run these too
+# ^ prints THREE bundle summaries (320/41, 228/20, 29/5 on 2026-11-23). The total
+#   is their sum; reading only the last one says "29 in 5" and looks exactly like
 #   nearly all of the suite having silently stopped running.
 ./scripts/render-parity.sh                                     # Edit ≡ Preview: the gate
                                                                # for anything visual

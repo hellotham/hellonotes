@@ -57,6 +57,17 @@ public enum InlineParser {
             guard p < hi else { return nil }
             return NSRange(location: abs(lo), length: p + 1 - lo)
         }
+        /// A picture embed's `|300` — or `|words` — from its pipe (and a
+        /// table's escape on it) to the close. What a picture embed shows when
+        /// it is not drawn is the picture's *name*; shown as a link's alias, a
+        /// size was drawn as the text "300".
+        func aliasSuffix(contentLo lo: Int, contentHi hi: Int) -> NSRange? {
+            var p = lo
+            while p < hi, b[p] != 0x7C { p += 1 }   // |
+            guard p < hi else { return nil }
+            if p > lo, b[p - 1] == 0x5C { p -= 1 }  // \| in a table's row
+            return NSRange(location: abs(p), length: hi - p)
+        }
 
         while i < n {
             let c = b[i]
@@ -84,7 +95,23 @@ public enum InlineParser {
                 }
 
             case 0x24: // $ — inline math (block-level $$ never reaches here)
-                if i + 1 < n, b[i + 1] != 0x24, b[i + 1] != 0x20,
+                // `$$…$$` on a line the block-level rule never sees — in a
+                // quote, a callout, a list item — is one formula. Read as `$`,
+                // `$…$` and `$`, it was drawn with a dollar each side of it, in
+                // Edit and in Preview alike (`PreviewSuperset.inlineMath`
+                // reads it the same way now).
+                // Spaces inside are the formula's (`$$ x $$`), and a `$$` that
+                // never closes is the `$` before a `$…$`, as Preview's pattern
+                // reads it.
+                if i + 1 < n, b[i + 1] == 0x24 {
+                    if let close = findPair(b, char: 0x24, from: i + 2, count: n, stopAtNewline: true),
+                       close > i + 2, !b[(i + 2)..<close].contains(0x24) {
+                        nodes.append(span(.math, base: base, open: i, openLen: 2, close: close, closeLen: 2))
+                        i = close + 2
+                    } else {
+                        i += 1
+                    }
+                } else if i + 1 < n, b[i + 1] != 0x24, b[i + 1] != 0x20,
                    let close = findChar(b, char: 0x24, from: i + 1, count: n, stopAtNewline: true),
                    close > i + 1, b[close - 1] != 0x20 {
                     nodes.append(span(.math, base: base, open: i, openLen: 1, close: close, closeLen: 1))
@@ -124,13 +151,16 @@ public enum InlineParser {
                 if i + 2 < n, b[i + 1] == 0x5B, b[i + 2] == 0x5B,
                    let close = findPair(b, char: 0x5D, from: i + 3, count: n, stopAtNewline: true) {
                     let target = str(i + 3, close)
+                    let alias = PictureNames.isPicture(PictureNames.embedTarget(target))
+                        ? aliasSuffix(contentLo: i + 3, contentHi: close)
+                        : aliasPrefix(contentLo: i + 3, contentHi: close)
                     nodes.append(InlineNode(
                         kind: .wikiLink(target: target, isEmbed: true),
                         range: NSRange(location: abs(i), length: close + 2 - i),
                         contentRange: NSRange(location: abs(i + 3), length: close - (i + 3)),
                         markerRanges: [NSRange(location: abs(i), length: 3),
                                        NSRange(location: abs(close), length: 2)]
-                            + (aliasPrefix(contentLo: i + 3, contentHi: close).map { [$0] } ?? [])))
+                            + (alias.map { [$0] } ?? [])))
                     i = close + 2
                 } else if i + 1 < n, b[i + 1] == 0x5B,
                           let link = matchMDLink(b, from: i + 1, count: n) {

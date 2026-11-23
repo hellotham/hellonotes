@@ -8416,6 +8416,648 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.84 The rest of the review's list, and 1.3.7 (37) to TestFlight (2026-11-23)
+
+At the person's word: "fix remaining issues, then build for testflight" —
+the four §51.83 left, and the menu item it could not look at.
+
+- **Insert Image stays inside a callout, a quote or a list item.** A paragraph
+  of its own was blank lines and nothing else, so at a caret in a callout —
+  Obsidian's usual frame for a figure — the picture went after the callout,
+  and in a list item it split the list in two. `ParagraphInsertion`
+  (MarkdownCore) reads what holds the caret's line from the document's parse
+  (`EditorDocument.paragraphContainer`): a list item gives the indent to its
+  text, inside any quote; a quote or callout its markers; a fence inside
+  either, nothing. Every line the insertion adds carries that prefix, a blank
+  line is the container's own (`>` in a quote, empty in an item), and a caret
+  among a line's markers is taken to its text. With nothing holding the line
+  it is the old rule exactly. Checked against cmark: the picture is inside
+  the callout, inside the second item of one list, inside a nested item and a
+  quoted one. Not handled, as before: a list inside a quote read from one of
+  its items' continuation lines (the quote alone), and a blank line between
+  an item's paragraphs, a block of its own.
+- **On iOS, undo after a picture's description came cut through the link.**
+  The description went straight into the document's storage, and a
+  `UITextView` keeps its undo stack on UIKit's manager, by offsets: in one
+  event, `Start ![a cat](p.png)` undid to `Start.png)` (probed in the iPad
+  simulator); in a later one, as Vision's answer comes, UIKit had nothing left
+  to undo and the picture could not be taken back. A rewrite of the note on
+  screen goes through UIKit's own editing now (`EditorProxy.replaceFirst` on
+  iOS, `performEdit`), the caret put back where it was in the text; the Mac's
+  text view undoes on the document's manager, where the inverse was already
+  registered. `DeferredRewriteUndoTests`, with a control: the old write fails
+  it.
+- **`$$…$$` in a line is one formula.** In a callout, a quote or a list item,
+  where the block rule never starts, both the editor's parser and Preview's
+  pattern read `$`, `$…$` and `$`, and drew a dollar each side. Both read
+  `$$…$$` first now (`InlineParser`, `PreviewSuperset.inlineMath`), spaces
+  inside allowed, and a `$$` that never closes is the `$` before a `$…$` in
+  both.
+- **Edit finds a moved note's pictures from where it is.** A note renamed or
+  moved keeps its document, and the document its renderer, which had read the
+  note's folder once, when it was made. The renderer asks a `NotePlace` now,
+  which the host sets each time it shows the document and when the pictures
+  folder setting changes (`EditorDocument.blockRenderer`).
+- **The menu bar's import is File ▸ Import From Device**, read from the menu
+  bar of a capture session: each device nearby, with Take Photo, Scan
+  Documents and Add Sketch. Not tried: a photo taken through it, which needs
+  the phone.
+
+**And a lesson from the looking.** Opening a note into a window with nothing
+open sets the editor mode to the platform's default
+(`ContentView.openSelectedNote`), and the capture session's Open Quickly did
+that: `editorViewMode` changed, `CloudPrefs` pushed it, and the person's next
+launch would have pulled it over their own. Writing the key back locally does
+not reach the cloud, and the pull at launch takes the cloud's. Put right the
+way the app writes it: a second capture session, the person's mode chosen
+from the View menu — read from the backup and never printed — which the app
+pushed; then the key read back equal to the backup. A capture session that
+opens a note writes a synced setting; compare `editorViewMode` after one.
+
+**Checked before the archives**: the editor package, 599 tests on macOS and
+577 on the iPad simulator; the app's suite, 1,077 tests in 162 suites and the
+three XCTest cases; the phone's interface suite, 21 run and 4 skipped by
+design (the store's screenshots, the window-parity capture and the iPad's
+two), and the iPad's two; the main-actor budget suite alone, 18 (a scan
+0.007 s, a rebuild 0.053, making a note 0.026, renaming one 0.030). The
+preferences' 52 key names were the same after the suite as before. Not run:
+the Edit ≡ Preview gates (no document in their corpora writes `$$` in a line)
+and chrome and window parity (no chrome changed).
+
+**To TestFlight**: archived for both platforms, read back (1.3.7 (37)
+throughout, arm64, Private Cloud Compute present, every provider key), and
+uploaded with the team key — the Mac at 15:50, iPhone and iPad at 15:55; both
+`VALID` by 15:57 and in internal testing. From the working tree, uncommitted;
+not attached to the 1.3.7 versions, not submitted (production.md §10p).
+
+### 51.83 A review of the picture work, and what it found (2026-11-23)
+
+A code review of §51.79–§51.82 and of 1.3.7's Insert Image, at the person's
+`/code-review --fix`: six finders, one verifier each for 23 candidates, and a
+sweep that found six more. Of the 23, 22 held and one did not
+(`CloudPrefs.push` copying the whole domain: a copy of the domain is shallow,
+2–7 µs, and cheaper than the fifteen reads it replaced). What was fixed:
+
+- **Insert Image put the picture into whichever note was open when it was
+  ready.** The editor is one view for every note, and a photo still loading
+  when the person switched notes went into the other at the first one's
+  offset — past its end, on the Mac, an `NSRangeException` from
+  `replaceCharacters`. And the offset was the caret's when the picture was
+  asked for, kept across typing while it loaded, so it split a word. The
+  insertion is decided when the picture is ready (`pictureInsertion`): only
+  into the note it was asked for (`EditorProxy.shows`), else nothing is put
+  in and nothing written; at the caret as it was if the note's text has not
+  changed since (`EditorDocument.revision`), and as it is now if it has. A
+  link the editor did not take writes no picture (`put` says so).
+- **…and on a note only opened, above its front matter.** It asked the view
+  for the caret, which reads `{0, 0}` for a document no caret has entered —
+  no caret at all, as `EditorDocument.caret` says — and 0 is the `---`: the
+  block became a rule and a heading, and its tags left the indexes at the
+  next save. It asks the document now; with no caret the picture goes at the
+  end, and a caret in the front matter puts it where the body starts.
+- **Its description was rewritten into an earlier link to the same
+  picture.** The rewrite looked from the caret, which `put` had left past the
+  blank lines after the link, so it missed the new link and took the first in
+  the note. It looks from where the link ends (`replaceFirst(…near:)`).
+- **Vision's words went into `![…](…)` as they came**: a bracket or a
+  backslash broke the link, and — since §51.80 — a sign reading
+  "Platform | 12" drew its picture twelve points wide. `VisionAlt.markdownSafe`.
+- **A size had no upper bound.** `|100x9223372036854775807` trapped turning
+  the height into pixels, and a large one asked an iPhone for gigabytes at
+  every launch. `PictureNames.size` takes sides up to 10,000, and
+  `PlatformImageKit.resized` gives a bitmap no more pixels than its picture
+  has or 4096 × 4096, whichever is more. Its guard had also become
+  `size.height >= 1`, so a 2000×2 divider brought down to a 640-point column
+  (0.64 points tall) came back at 2000 points: above nought now.
+- **A Markdown image with a fragment was not drawn** —
+  `![](logo.png#gh-dark-mode-only)`, which GitHub READMEs use: the old
+  resolver dropped the fragment, `PictureEmbed(path:)` did not.
+- **A picture that is a symbolic link was not found by name**: a link's own
+  resource values say it is not a regular file, where `fileExists` had
+  followed it.
+- **A launch that resumed an interrupted walk said the pictures were all
+  listed.** The index cache keeps notes, not the other files, so the list
+  begins empty, and a walk resumed from its checkpoint visits only the rest
+  of the folder: every picture in the part already walked was missing. Only
+  a walk that began at the root says the pictures are listed.
+- **The lookup gave up on a picture the walk had just listed**, if the list
+  landed between its first look and its wait; it looks again. The test of the
+  wait slept 50 ms and could pass without waiting; it waits for the lookup to
+  be waiting (`lookupsWaitingForPictures`).
+- **The disk was asked on the concurrency pool** — up to three looks an
+  embed, each able to hold a thread on a share that has stopped answering, and
+  `standardizedFileURL`, which asks the disk about `/private`. On the scans'
+  lanes now, worked out by text (`URL.standardized`).
+- **The picture index was made on the main actor at every change to the
+  collection's files** — two to three microseconds a picture, tens of
+  milliseconds a change in a vault of ten thousand. It is made off it, in
+  order, and the folder is said to be listed only behind the list
+  (`CollectionEmbedProvider.indexing`) — and a lookup waits for the lists
+  handed over before it (`indexed`). Without that, the first version of
+  this change let Preview's page, drawn again as a walk ends, look before
+  the walk's list was in and say the picture in words — seen in the code of
+  the tests' own Preview helper, which scans and asks at once, before
+  anything ran.
+- **Choose from Collection… listed what the system calls an image** — a
+  camera's raw file, an icon, a Photoshop document — whose link Edit and
+  Preview show as text. It lists what `PictureNames` calls a picture. Its
+  thumbnails were whole-file reads that a row scrolled away could not stop,
+  in front of the note's own pictures on the same lanes: a row no longer
+  wanted reads nothing, and a photo's own thumbnail is used when it has one.
+- **The camera encoded its JPEG on the main thread**, 50–200 ms on Use Photo
+  for twelve megapixels. It hands back the photo, encoded off it
+  (`PhotoBytes`).
+- **Vision read a photo as it is stored, not as it is held**: a camera keeps
+  the orientation as a tag, so a page photographed upright was read on its
+  side, and the whole picture was decoded — some 190 MB at 48 megapixels. It
+  reads a thumbnail turned upright, at most 4,096 pixels a side.
+- **Preview's page was not built again when the pictures folder setting or
+  the note's folder changed**: both are in its `Inputs`. (Edit's renderer
+  still keeps the note's folder from when its document was made, which a
+  moved note's document carries: older than this work, and not changed.)
+- **Insert Image was not in the command palette**, and on the Mac taking a
+  photo with an iPhone was in the right-click menu alone. Three palette rows,
+  and the system's `ImportFromDevicesCommands` in the menu bar.
+- **`aWikiEmbedInsideALineStaysSource` tested nothing**: since §51.79 the
+  picture it held is drawn in the line, and it passed in the suite only
+  because it looked before the picture came — run alone, it failed. It is a
+  note's embed beside a picture now, read once the picture has come, with a
+  control that fails.
+- Beside these: `EditorProxy.focus(at:)` scrolls through `reliablyScroll`;
+  a deleted note under its folder's other name is taken out of the
+  relatedness index too (older); and the parity harness reads an embed's name
+  as the app does (`PictureNames.embedTarget`).
+
+Left for the next round, and done there (§51.84): a callout's `$$…$$` drawn
+as `$`, a formula and `$`; Insert Image landing after a callout, a quote or a
+list item rather than in it; undo after a filled-in description on iOS; and
+Edit finding a moved note's pictures from the folder it had left.
+
+**Checked**: the app's suite, 1,076 tests in 162 suites and the three XCTest
+cases, the new and rewritten ones among them; the editor package, 591 tests on
+macOS and 568 on the iPad simulator; the rewritten inline-embed test alone,
+and its control (a picture's name in the note's place) failing; Debug builds
+for macOS and the iPhone simulator. The preferences' 52 key names and the
+Trash were the same after the run as before it. Not run: the Edit ≡ Preview
+gate (nothing it measures changed), and a look at the menu bar for where
+macOS puts Import from iPhone or iPad — the screen was locked.
+
+### 51.82 Create and rename are under budget; Split's page was not (2026-11-22)
+
+The task: "Bring create and rename back under their main-thread budget" —
+written from §51.61, which found making a note in a collection of 2,000
+costing 0.15 s of main thread and renaming one 0.29 s, against the budget
+suite's 0.1.
+
+**They are under it, and have been since §51.72**, which found the cause —
+`sameFile` asking the disk for the collection's root once a note — and
+brought them to 0.025 s and 0.030 s. Measured again in four runs of the
+budget suite today, alone, at load averages of 4 to 17: making a note 0.025,
+0.027, 0.038 and 0.025 s; renaming one 0.029, 0.036, 0.059 and 0.029 s. The
+highest of each was the run at the highest load. Nothing in either path was
+changed.
+
+**The suite found something else, and it was this session's**: Split mode's
+Preview drew no page once typing paused
+(`typingInSplitModeBarelyTouchesTheMainActor`: "Preview was handed 0 pages
+once typing paused", in two runs of two). §51.80 gave every page a pass for
+Obsidian's sizes, a Swift `Regex` over the whole page behind a
+`String.contains`. A page carries its formulas, diagrams and cards inline as
+`data:` addresses, so a long note's runs to megabytes — and both cost some
+tens of nanoseconds a byte: 0.08 s for a page of 2 MB and 0.88 s for one of
+28 MB, measured, off the main actor but in front of the page, which then
+landed after the two seconds the test allows for a pause. With the pass
+taken out the test passed. It is a byte search now
+(`NoteMarkdown.sizingPictures`): `memmem` finds cmark's `<img src="`,
+`memchr` the tag's `>`, and only that tag is read as text, for a description
+ending in a size (`PictureNames.sizeSuffix`, the rule Edit reads by). The
+same page now takes 1.1 ms and 15 ms, with output identical to the
+`Regex`'s on both. `PictureSizeTests` and `NoteMarkdownTests` pass as they
+were.
+
+**Checked**: the budget suite alone, all eighteen (making a note 0.025 s,
+renaming one 0.029 s, a keystroke in Split 0.0028 s and nothing settling
+after); the editor package, 591 tests in 67 suites on macOS and 568 in 64
+on the iPad simulator. The Edit ≡ Preview gate was not run again: a page with no sized picture, which
+is every page in its corpus, comes back from the pass as it went in.
+
+### 51.81 The save-indexing races are staged with holds, not by size (2026-11-22)
+
+The task: "Stage SaveIndexingTests' races with holds, not note size" — the
+backlog's (unimplemented.md §12): the tests that stage a save still parsing
+did it by the size of a note, "and nothing stops the runner finding that
+race over before it is looked at".
+
+Every race in `SaveIndexingTests` was staged by making work slow. A save
+still being parsed was a note of 2 to 8 MB (28,000 to 112,000 lines of
+prose); a rebuild still out was two hundred notes changed on disk, so it
+re-read them all; the relatedness index still building was the same two
+hundred, with a 100 ms sleep and a premise that the saved note was read
+first. Each made its race likely and none made it certain. Four said so ("the
+first save finished before the third began, so this tests nothing") and
+failed on a one-thread pool; the rest would have passed without staging
+anything, and said nothing.
+
+**`WorkHold`** stops one piece of a collection's own work where a test asks,
+and lets it go when the test does. Three places wait at one:
+
+- a save, parsed and not yet applied (`indexSaved`) — keyed by the note's
+  path, and taken when the save is made, so the order the saves were made in
+  is the order the holds are taken: armed once, a note's first save is held
+  and its second is not;
+- a rebuild, its notes read and nothing yet loaded (`refreshDerived`);
+- the relatedness build, its notes read and the index not yet built
+  (`relatednessIndex`) — both keyed by the collection's folder.
+
+A held piece of work waits on a continuation and holds no thread, so a
+one-thread pool runs the rest. A hold is armed and taken under a lock, by a
+look in a dictionary that is empty outside tests; one released before any
+work took it is withdrawn, so nothing after the test is held by it.
+
+The tests now stage each race in order. A save is held while a newer one
+lands, and released while a third is held, which shows the first landing
+with the third out and not applied, where before it only had to land at
+some point. A rebuild is held after it has read, while a save, a deletion,
+a new note or a rename's patch lands, then released. The relatedness build
+is held once it has read every note, the saved one included. No note is
+larger than a line, no folder changes on disk to slow anything, and the
+2-second sleep "for that rebuild to have landed, had it gone on" is a wait
+for the rebuild to land. In the app's whole suite it took 22 s, against 47
+and 56 s in the two runs of the day before it; run alone, 7 s.
+
+**The controls found two tests that tested nothing**, with every guard the
+suite exists for taken out in one run: the newest-save check, a save's
+patch cancelling the rebuild in flight (the old defect), a rebuild taking
+the cache's record of a saved note and keeping no save, a save during the
+relatedness build not kept for it, and a rename not waiting for the saves
+still out. Fifteen tests failed, each on its own expectation; two passed:
+
+- `aNoteThatLeavesWhileItsSaveIsParsedIsNotPutBack` is held by another check
+  — a saved note no longer in the collection is not patched — which a scan
+  takes it out of without clearing the newest-save number. Its own control
+  (patching it anyway) fails it.
+- `aRenameRewritesALinkSavedJustBeforeIt` released the save at the rename's
+  first wait, whatever that was for. Not waiting for saves, the rename's
+  first wait was its look at the disk for a note of the new name, the save
+  landed there, and the link was rewritten all the same. It releases the
+  save once the rename is seen waiting for it now (`waitingForSaves`), and
+  without the wait fails twice over.
+
+**Checked**: the suite, 20 tests, hosted; the same on a one-thread pool —
+and, to show the setting reached the host, `CollectionAvailabilityTests`
+under it, where `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt` failed as
+it is recorded to; both control runs, the source put back from a copy and
+compared byte for byte after each; and the app's whole suite, 1,073 tests in
+162 suites, with the preferences' 52 key names as they were.
+
+### 51.80 Obsidian's size on an ordinary picture: `![A cat|300](cat.png)` (2026-11-22)
+
+At the person's word, after §51.79: "respect obsidian size markers".
+
+Obsidian sizes a Markdown image at the end of its description, after a pipe —
+`![A cat|300](cat.png)`, `![|300x200](cat.png)`, `![|100](https://…)` — as it
+sizes an embed. Preview drew such a picture at its own size, its description
+read as "A cat|300", and so did Edit a picture in the collection (Edit draws
+no picture from the web, sized or not).
+
+- **One rule, in the package** (`PictureNames`): `size` reads `300` or
+  `300x200` — whole numbers above nought — `sizeSuffix` the size after the last
+  pipe of a description or an embed, and `drawnSize` the size it is drawn at:
+  the width asked for, up or down, never past the pane, the height asked for
+  or in proportion. The app's renderer and the parity harness both ask
+  `drawnSize`; the harness had a copy of the old rule, which also rounded a
+  scaled picture's height where the app never did.
+- **Edit**: `BlockEmbedKind.image` carries `width` and `height`, read by the
+  editor in both spellings — a picture on a line of its own, behind a
+  reference, and inside a line (`blockEmbedKind`, `inlineImageKind`) — so the
+  host need not know where each keeps it. A size, not the description, is in
+  the kind: a description filled in after the picture went in does not draw
+  it again.
+- **Preview**: the page reads it from cmark's own output
+  (`NoteMarkdown.sizingPictures`, applied by `GFMRenderer.page` — a `Regex`
+  at first, which held a long note's page past a pause; a byte search since
+  §51.82), where an
+  image is known for certain — `<img src="cat.png" alt="A cat|300" />` becomes
+  `<img src="cat.png" alt="A cat" width="300" />` — so every form a
+  destination, a title or a reference can take is covered. `GFMRenderer.html`,
+  which the specification sweep grades, is GitHub's still. Export and print
+  go through the page, so they keep the size too. And `![[photo.png|300]]` now
+  goes the same way: Preview writes it as `![photo.png\|300](<hn-picture:…>)`
+  — the pipe escaped, for a table's cell — in place of §51.79's `<img>` and
+  the empty comment that kept it a paragraph; and `NoteMarkdown`'s own
+  rewrite of an embed, which Preview's first quick page and the parity
+  harness use, keeps a picture's size the same way (`![\|300](photo.png)`),
+  where it dropped it with the alias.
+
+In the iPad simulator, `![A waterfall|150](…)` and `![|200x60](…)` were drawn
+at 150 points and at 200×60 — stretched, as asked — in Edit and in Preview
+alike. Tests: `aSizeIsTheLastThingAfterAPipe` and
+`aPictureIsDrawnAtTheSizeAskedForAndNeverPastThePane` (`PictureNamesTests`),
+`aMarkdownImagesSizeIsReadFromItsDescription`, `PictureSizeTests` (the page:
+a line of its own, a title, a reference, inside a line, a table's cell, the
+web; words that are not a size; `html` untouched), and the app's Preview and
+renderer tests. Controls: without the page's step, `PictureSizeTests` failed
+six times; without the editor's reading, the description test four.
+
+The parity gate failed one document, `03-technical-note.md`, by −270pt at
+560, 800 and 1200, on a machine whose load average stood between 150 and 590
+from another project's build. The settle wait gives a picture three seconds
+to land, and the difference was the document's screenshot. Run beside the
+committed code under the same load (a worktree of `HEAD`, `--locate`,
+alternately), the committed code showed the same −270 on an intermediate
+prefix, and both agreed once the picture had landed: +0.22pt here against
+−0.15pt, the 0.37 being the harness's height no longer rounded, as the app's
+never was. Run whole again at a load of 18, the gate passed: 60 of 60
+documents at 1200, 800 and 560, the known two at 420, chrome ok. The editor
+package then passed 591 tests in 67 suites on the Mac (568 in 64 on the iPad
+simulator, before the fallback kept its size), and the app's suite 1,073 in
+162. The docs were fact-checked: 11 claims, 9 true, 2 about Obsidian
+itself; its reverse column put five comments right — one of them a doc
+comment that had sat on the wrong function — and two lines of these records.
+
+### 51.79 Obsidian's pictures: `![[photo.png]]` found by name, sized, and in Preview (2026-11-22)
+
+At the person's word: "Can you check ability to display images inserted using
+Obsidian syntax? Not working for me".
+
+Measured first, in the iPad simulator, with the pictures in the sample
+collection's `assets` folder, a note at its top and one in `Manual/`:
+
+| Written | In | Edit | Preview |
+|---|---|---|---|
+| `![[name]]` | the top | shown | blank |
+| `![[assets/name]]` | the top | shown | shown |
+| `![[name\|200]]` | the top | the text "200" | blank |
+| `![](assets/name)` | the top | shown | shown |
+| `![[name]]` | `Manual/` | the name, as a link | blank |
+| `![](../assets/name)` | `Manual/` | shown | shown |
+
+Obsidian writes the shortest name that is unique in the vault, and keeps new
+pictures in the vault's top folder unless told otherwise, so the picture an
+embed names is as often in a folder the note does not name as beside it.
+Three things were wrong:
+
+1. **Edit looked beside the note and in its pictures folder, and nowhere
+   else** (`EditorHost.makeBlockRenderer`), and Preview left the embed to
+   `NoteMarkdown`, which writes it as a path from the note's folder: blank
+   anywhere else.
+2. **The editor handed the host an embed's inner text whole — `name|200` —
+   and the same string for `![](name)` as for `![[name]]`.** The host could
+   tell neither the size from the name nor which rule to find the file by.
+3. **Preview's page reads files only inside the note's folder.** It is loaded
+   with that folder as its base, and a web view reads a `file:` URL only
+   inside what it was granted (`BlockAssetScheme` says the same of an HTML
+   block's page) — and on an iPad a vault in iCloud Drive is outside the
+   app's container altogether, readable by the app through the folder's
+   security scope, which the web view does not hold.
+
+What changed:
+
+- **`BlockEmbedKind.image(target:isWikiEmbed:)`.** The editor says which was
+  written. A wiki embed that names a picture (`PictureNames`, by extension) is
+  drawn in a line — a list item, a quote, a callout, beside a word — as a
+  Markdown image is (`EditorDocument.inlineImageKind`); a note's card is never
+  drawn there. And a picture embed's `|…` is what is hidden when it is not
+  drawn, so a picture that cannot be found reads as its name, not as "200"
+  (`InlineParser.aliasSuffix`).
+- **`PictureEmbed`** reads `name`, `name|300`, `name|300x200`, `name|words`,
+  `name|words|300` and a table's escaped pipe; **`PictureIndex`** finds the
+  place, by text: `./` and `../` from the note's folder and `/` from the
+  collection's, each naming one place; then the path from the note's folder —
+  all a Markdown image has, as cmark reads one; then, for `![[…]]`, the path
+  from the collection's folder (the only way Obsidian can write the path of a
+  picture kept there), the note's pictures folder (Settings ▸ General ▸
+  Attachments), and every picture whose place ends in what was written —
+  whole names, case ignored — nearest the note first: the fewest folders
+  between, then the shorter place, then by name, so a note always shows the
+  same one.
+- **The collection's pictures go to `CollectionEmbedProvider`** whenever
+  `attachments` changes, by place. `pictureURL` looks there, then on the disk
+  for what can be named by path — a collection with Show Non-Note Files off
+  lists no pictures, and a walk skips hidden folders — and then, in Edit only,
+  waits for the walk if the collection has not yet listed its folder: a note
+  reopened at launch is drawn from the index cache before the walk that lists
+  pictures has run, and its picture, given up on, would have stayed a line of
+  text. The walk says when it is done (`picturesAreListed`), as do a folder
+  that cannot be read and closing the collection; a provider with no
+  collection never waits.
+- **Edit draws the size asked for** — up past the picture's own size and down
+  to the pane's, as `<img width height>` is drawn under `max-width: 100%`
+  (`BlockRenderAdapter.sized`, `PlatformImageKit.resized`).
+- **Preview shows the picture by a private address** (`PreviewPictures`,
+  `hn-picture:`): a token for each file a page was given, read through
+  `FileIO.embeddedData` — waited for, if it is still in the cloud — so an
+  address no page was given names nothing, and a note cannot read a file by
+  writing its path into an `<img>`. Without a size it is a Markdown image,
+  which cmark puts in a paragraph as it puts `![](…)`; with one, an `<img
+  width height>` followed by `<!---->`, because a line that is one tag and
+  nothing else opens an HTML block (condition 7), with no paragraph's margin
+  (replaced the same day by a Markdown image with its size: §51.80).
+  A picture that is not found reads as its own text, not as a blank. A
+  callout's body now goes through the same pass as every other line, outside
+  a fence of its own — so its `$…$`, `==…==` and `%%…%%` are drawn now, as
+  they are everywhere else.
+- **`![[Note|alias]]` draws its card in Edit.** The card was looked up by
+  `Note|alias`.
+
+In the iPad simulator, Edit and Preview each showed the six cases above and
+four more: a name with a space in another top folder at `|300`, a list item
+at `|120`, a callout at `|200`, and a picture not in the collection (its name
+in Edit, `![[Nowhere.png]]` in Preview). On the Mac, an offscreen probe of
+WebKit — a page loaded as Preview loads one, with the note's folder as its
+base — drew an `hn-picture:` image (natural width 40) and gave `width="120"`
+120 points, past the picture's own 40, which is the size Edit draws.
+
+Not done: Obsidian's sizes on a Markdown image (`![alt|300](path)`) were not
+read (they are now: §51.80); PDFs, audio and video embeds are not drawn; and a picture Edit could not
+find when it drew its note is not looked for again until that block is styled
+again — a picture that syncs in after its note. With Show Non-Note Files off
+the collection lists no pictures, so an embed is found only by the paths it
+can name — beside the note, from the top folder, in the pictures folder — and
+the manual says so.
+
+Tests: `PictureEmbedTests` (13: the reading, the lookup and its order, the
+walk's list, the wait — and that a provider with no collection never waits —
+Edit's sizes, Preview's address, paragraph, callout and missing picture),
+`WikiPictureEmbedTests` and `PreviewPicturesTests` in the package (what the
+editor asks for, in a paragraph and in a list item; an address names only its
+own file), `PictureNamesTests`, and `aPictureEmbedHidesItsSizeAndShowsItsName`.
+Controls: without the list-item case in `inlineImageKind`, the list test
+failed; without the picture rule in `InlineParser`, the alias test failed
+twice over; put back, both pass. The lookup's expectations were run first in
+a scratch build of the three files alone, and one was wrong — written as if
+the pictures folder came before the top folder, which it does not. The editor
+package: 585 tests in 66 suites on the Mac, 562 in 63 on the iPad simulator;
+the app's macOS suite, 1,073 in 162 (its first run did not compile: the new
+test read an image's `size` without importing AppKit). Preference key names
+were the same 52 before and after.
+
+The docs were fact-checked against the source: 22 claims, 16 true, 2 about
+Obsidian itself, and 4 true only while Show Non-Note Files is on — written in
+since. Its reverse column put five comments right.
+
+### 51.78 A capture session's settings went to iCloud as the person's (2026-11-22)
+
+Found while checking §51.77 on the Mac: two of the person's preference keys,
+`textScale` and `increaseContrast`, changed during a capture session that set
+neither. Compared with the backup `window-parity.sh` took before its 07:04 run —
+"same" and "different" only, never a value — the text size had been the
+person's own before that run and after its restore, and was now the capture's
+`1`, stored as the string the argument had been; the contrast switch was the
+same setting stored as the string `"NO"`.
+
+`CloudPrefs` mirrors fifteen settings through iCloud's key-value store, and
+`push()` read `defaults.object(forKey:)` — which answers from the launch's
+**arguments** first. A capture session passes the settings it draws with as
+arguments (`-textScale 1 -increaseContrast NO -appearanceMode light …`), so
+the first defaults write of the 07:04 session pushed them to iCloud as the
+person's; the script's own before-and-after check saw nothing, because the
+person's domain was untouched. The *next* launch — this one, and any device
+the store reached — pulled them into the person's own settings. Every earlier
+capture run will have done the same; a text size that reset itself before
+today would be this (not checked). And a pulled `"NO"` is not even the same
+setting everywhere: `showInlineTitle` is read `as? Bool ?? true`, so it would
+have turned the title on.
+
+- Only the app's own domain is pushed and compared with (`ownValues`,
+  `persistentDomain(forName:)`).
+- Only a value of the kind the app writes is pulled (`CloudPrefs.isSetting`):
+  a number where it writes a number or a switch, a string where it writes a
+  string — and a launch argument is always a string.
+- A value in the store that is not a setting is put right from this device's
+  own, or removed, which repairs every device the store reaches; one log line
+  names the keys (`log show --predicate 'subsystem == "com.hellotham.HelloNotes"
+  AND category == "CloudPrefs"'`).
+- `CloudPrefsTests` hold the rule. A hosted test that pushed would push to the
+  person's own iCloud, so nothing tests the store.
+
+**Repaired.** With the app quit, the two keys were written back from the 07:04
+backup, typed — `defaults write -float` stores a 32-bit float, so the text size
+went through `CFPreferencesSetAppValue` as a double, and then compared equal.
+Then one capture session of the fixed build, whose pull logged "Put the
+person's own back over 2 synced key(s) holding a launch argument: textScale,
+increaseContrast". Every preference key is as it was before 07:04 except
+StoreKit's `SKTransactionUpdatesLastChecked`; the four open collections were
+unchanged throughout. The person's installed 1.3.6 still pushes arguments, but
+it is never launched with any.
+
+### 51.77 Insert Image: a picture from the collection, the photo library or the camera (2026-11-22)
+
+At the person's word: "the edit toolbar should have a button to add an image
+to the note (either by preselecting an existing image in collection or from
+photo library or by taking new image on camera and saving it into
+collection)".
+
+**Insert Image** is on the keyboard's bar — on an iPad after the headings, on
+an iPhone at the end of the bar and so, on iOS 27, in its ⋯ menu — and in
+**Format ▸ Insert Image**, with one set of names (`EditorImageSource`):
+
+- **Choose from Collection…** (`CollectionPicturePicker`): the collection's
+  pictures, newest first, found by name or folder, each linked where it is by
+  a path from the note's folder (`PictureFile.markdown`) — `../assets/…` from a
+  note in a subfolder — with what a link destination cannot hold
+  percent-encoded and letters of any script kept. Nothing is copied. A
+  thumbnail is read only for a file on the device (`FileIO.isMaterialized`),
+  on the scans' lanes, so scrolling an iCloud vault's list downloads nothing.
+- **Choose from Photos…** (`photosPicker`) and **Take Photo…**
+  (`CameraCapture`, only where `UIImagePickerController` has a camera — never
+  the simulator, never the Mac): the picture is written where pasted ones go
+  (Settings ▸ General ▸ Attachments, now "New pictures") as
+  `Photo-<stamp>.<ext>`, JPEG, PNG, GIF and WebP as they came and anything
+  else — an iPhone's HEIC, a TIFF — as JPEG with its metadata
+  (`PictureFile.storable`), off the main actor and coordinated
+  (`ImagePaste.write`). A photo from the library keeps where it was taken
+  while the picker includes it — its default, switched in the picker's ⋯ ▸
+  Options ▸ Location: on, the flowers kept fifteen GPS keys; off, a waterfall
+  whose original has eleven kept none (both read from the written file) — and
+  a camera photo carries none (`UIImage.jpegData`). The app neither strips
+  nor adds it. The Mac's picker was not tried.
+- On the Mac, a photo from an iPhone or iPad nearby: **Import from iPhone or
+  iPad** in the editor's context menu (Continuity Camera — `validRequestor`,
+  `readSelection`), written the same way.
+
+The link goes in at the caret as a paragraph of its own (`EditorHost.asParagraph`):
+the first version put it at the caret exactly, and a picture beside a word was
+drawn inside that paragraph, from the end of its last line. The collection
+takes the new file in at once (`Collection.fileMadeHere` → `adopt(madeFile:)`),
+so Choose from Collection… lists the photo just added, and its new `assets`
+folder joins the tree whether or not other files are listed — but nothing in a
+hidden folder, which the walk would take away again. Only Edit offers it:
+the source editor installs the same keyboard bar in Markdown and Split, where
+the item would have been listed and done nothing, so it is offered only by a
+text view that can put a picture in (`PictureRequesting`), as the Format menu
+item is Edit's alone (`canFormat`).
+
+Found by using it, in the iPad simulator, each fixed:
+
+1. **A photo of flowers was described as "Screenshot: 411 4fk• éji ,441 ¥/i'
+   rdl:;rf".** `VisionAlt` read text at `.fast`, which found "text" in five of
+   the simulator's seven sample photos at the same confidence (0.3–0.5) as a
+   real screenshot's lines, and called anything with eight characters of it a
+   screenshot. At `.accurate` it read nothing in any of the seven and every
+   line of two screenshots at 1.0, in 50–190 ms each once its model was loaded
+   (the first request in a fresh process waited 33 s, on the Mac). And
+   "Screenshot:" only when the classifier says screenshot: a photographed page
+   is its words. The simulator cannot classify ("Failed to create espresso
+   context"), so there the flowers got no description, and a picture of a
+   paragraph got its words.
+2. **The caret ended inside the alt text.** The description arrives a moment
+   after the link, and `EditorDocument.replaceFirst` writes it straight into
+   the storage; a `UITextView` keeps its caret's offset through that, so the
+   caret was left inside the alt text and the next keystroke went into it.
+   Paste's alt text and a pasted link's fetched title had done the same on iOS
+   since they were written. `EditorProxy.replaceFirst(_:with:in:)` sets the
+   caret from where it was in the text (`EditorDocument.selection(_:across:becoming:)`);
+   a document no longer on screen is rewritten without one. Typed after the
+   description arrived, a letter landed after the link.
+3. **Choose from Collection… said "No Collection" for every note, in both
+   windows.** `NoteEditorView` handed its pane `collection: nil` — its
+   vocabulary is passed in, for the note window's sake. It passes the note's
+   own (`gitCollection`) now; what is passed in still wins over the
+   collection's. No unit test could see it — each handed the list a collection
+   of its own — so `testInsertImageListsTheNotesOwnCollection` goes through
+   the keyboard's bar.
+4. **The keyboard bar's overflow had six nameless rows on an iPhone** — the
+   headings, the lists and the quote: iOS titles a folded item's row from its
+   `title`, and only Insert Image had one. Every item and group stand-in is
+   titled now. `EditorToolbarContractTests` read each label in the source and
+   passed throughout; `FormattingBarTests` asks the built bar.
+5. **A picture that is never written is taken back with its blank lines**
+   (`takeBack`), not only its link.
+
+**Controls**: with the caret fix, the titles and the Edit-only gate each taken
+out, the iOS run of the two new package suites failed on exactly those three
+(3 issues in 8 tests); put back, they pass.
+
+**On the Mac**, read through Accessibility in a capture session with the
+sample collection alone, nothing photographed: Format ▸ Insert Image holds
+Choose from Collection… and Choose from Photos… (no Take Photo), enabled in
+Edit; Choose from Collection… put the sheet up with "No Pictures" and no "No
+Collection" — the sample has no pictures — and Cancel took it down. The
+context menu's Import from iPhone or iPad was not reached (the tool did not
+find the menu it had shown); it is from the code. That check is how §51.78
+was found.
+
+The docs were fact-checked against the source: 36 of 43 claims true, two
+false — the iPhone's bar "with all twelve commands" (eleven in Markdown and
+Split) and a sentence that dated Insert Image before 1.3.7 — and five
+unverifiable from the source; the order the bar's menu draws its sources was
+then written as what the simulator showed, and the location claim tested
+both ways (above). Its reverse column put eight comments and two captions
+right — among them the settings' "Pasted images", which now says "New
+pictures" — and an `attachmentFolder` that `NoteEditorView` declared and
+never read is gone.
+
+The editor package: 579 tests in 63 suites on the Mac, 556 in 60 on the
+iPad simulator. The app's macOS suite failed one test on its first run,
+`everyPromptedFieldIsLabelledOnBothPlatforms`: the picker's search field
+drew only its prompt, "Name or folder", which names nothing — it reads "Find
+by name or folder" now; on the finished tree, 1,060 tests in 161 suites
+pass. The phone's interface suite ran 21 (4 skipped by
+design) and the iPad pair 2, all passing; with the pane handed `nil` again,
+`testInsertImageListsTheNotesOwnCollection` failed — "the list was handed no
+collection".
+
 ### 51.76 The tabs start from the leading buttons (2026-11-21)
 
 At the person's word: "can the tabs (for opened notes) be left aligned rather

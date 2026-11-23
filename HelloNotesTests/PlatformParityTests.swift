@@ -130,6 +130,7 @@ struct PlatformParityTests {
         let allowed: [String: String] = [
             "Filter": "prompt is “Filter repositories” — it names the field",
             "Name": "in the New Folder alert, whose title and prompt both say “New Folder”",
+            "Find a picture": "prompt is “Find by name or folder” — it names the field",
         ]
 
         let root = RepoFile.url("HelloNotes")

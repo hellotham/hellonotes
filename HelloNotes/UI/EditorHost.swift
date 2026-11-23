@@ -36,6 +36,8 @@
 //
 
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 import MarkdownCore
 import MarkdownEditor
 
@@ -62,8 +64,9 @@ struct EditorHost: View {
     /// Preview mode is this host with no caret — syntax then stays fully
     /// rendered, because nothing is revealing the line the caret is on.
     var isEditable: Bool = true
-    /// Renders `![[Note]]` transclusion cards. Supplied rather than taken from
-    /// the collection so a host with no collection still draws the rest.
+    /// Renders `![[Note]]` transclusion cards and finds the pictures
+    /// `![[photo.png]]` names. Supplied rather than taken from the collection
+    /// so a host with no collection still draws the rest.
     var embedProvider: CollectionEmbedProvider? = nil
     var onOpenWikiLink: (String) -> Void
     /// What the collection can do with a selected phrase. Surfaced in the
@@ -77,6 +80,9 @@ struct EditorHost: View {
     var intelligence: IntelligenceService? = nil
     /// Where a rendered diagram's enlarge button sends its press — the zoom.
     var onDiagramZoom: (DiagramZoom) -> Void = { _ in }
+    /// The note's collection — for Insert Image ▸ Choose from Collection…,
+    /// which lists its pictures. Nil, and that list says there is none.
+    var collection: Collection? = nil
 
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @Environment(\.colorScheme) private var colorScheme
@@ -123,6 +129,15 @@ struct EditorHost: View {
     /// *ended*.
     @State private var rewriteRange: NSRange?
 
+    /// Insert Image: where the caret was when a picture was asked for — a
+    /// picker takes the focus, and the link goes where the person was — and
+    /// which picker is showing.
+    @State private var pictureAsk: PictureAsk?
+    @State private var choosingFromCollection = false
+    @State private var choosingFromPhotos = false
+    @State private var chosenPhoto: PhotosPickerItem?
+    @State private var takingPhoto = false
+
     /// The vault-aware items added to the system edit menu for `selected`.
     ///
     /// Built per selection rather than once, so **Link** appears only when a
@@ -147,6 +162,12 @@ struct EditorHost: View {
                         }
                     }
                     .onPasteImage { pasteImage(into: document) }
+                    // Insert Image from the keyboard's bar on iPhone and iPad;
+                    // the Format menu asks on the bus, below.
+                    .onInsertImage { askForPicture($0) }
+                    // A photo from an iPhone or iPad near a Mac — Continuity
+                    // Camera, in the editor's context menu.
+                    .onImportImage { data, type in importPicture(data, type: type, into: document) }
                     .onPasteMarkdown { smartPaste(into: document) }
                     .selectionMenuItems { selectionActions?.menuItems(for: $0) ?? [] }
                     .proxy(proxy)
@@ -246,6 +267,43 @@ struct EditorHost: View {
                     // is reused across notes, so without this the sheet could
                     // open onto a range that means something else entirely.
                     .onChange(of: note.fileURL) { _, _ in rewriteRange = nil }
+                    // The pictures folder is where a picture is looked for too
+                    // (Settings ▸ General ▸ Attachments): the next one asked
+                    // for is looked for in the folder set now.
+                    .onChange(of: attachmentFolder) { _, folder in
+                        (document.blockRenderer as? BlockRenderAdapter)?.place?
+                            .update(note: note.fileURL, attachmentFolder: folder)
+                    }
+                    // **Insert Image.** The Format menu's sources, on this
+                    // editor's own address; the keyboard's bar asks above.
+                    .onReceive(NotificationCenter.default.publisher(
+                        for: EditorBus.insertImage(editor: editor.editorID))) { asked in
+                        guard let raw = asked.userInfo?["source"] as? String,
+                              let source = EditorImageSource(rawValue: raw) else { return }
+                        askForPicture(source)
+                    }
+                    .sheet(isPresented: $choosingFromCollection) {
+                        CollectionPicturePicker(collection: collection, noteTitle: note.title) { file in
+                            insertExisting(file, asked: takePictureAsk(), into: document)
+                        }
+                    }
+                    // `.compatible`: the picker hands over a photo every reader
+                    // can show, and `PictureFile.storable` makes sure.
+                    .photosPicker(isPresented: $choosingFromPhotos, selection: $chosenPhoto,
+                                  matching: .images, preferredItemEncoding: .compatible)
+                    .onChange(of: chosenPhoto) { _, item in
+                        guard let item else { return }
+                        chosenPhoto = nil
+                        let ask = takePictureAsk()
+                        Task { @MainActor in
+                            guard let data = try? await item.loadTransferable(type: Data.self) else { return }
+                            insertNew({ data }, asked: ask, into: document)
+                        }
+                    }
+                    .takingPhoto(isPresented: $takingPhoto) { photo in
+                        let ask = takePictureAsk()
+                        if let photo { insertNew(photo, asked: ask, into: document) }
+                    }
                     // No `hnEditorFindQuery` observer here. The editor's own
                     // coordinator already listens on both platforms and answers
                     // with `showMatch(of:index:)`, which honours the
@@ -388,6 +446,10 @@ struct EditorHost: View {
             editor.liveDiagrams = { [weak built] in
                 built.map { (diagrams: $0.mermaidDiagrams, caret: $0.selectedRange.location) }
             }
+            // Where the note is now — a document kept across a rename or a
+            // move found its pictures from the folder the note had left.
+            (built.blockRenderer as? BlockRenderAdapter)?.place?
+                .update(note: note.fileURL, attachmentFolder: attachmentFolder)
             document = built
             documentLoad = load
             builtNotePath = note.fileURL.path
@@ -562,32 +624,221 @@ struct EditorHost: View {
         // The name now, for the Markdown the paste returns; the picture
         // written off the main actor (`ImagePaste.write`).
         let placement = ImagePaste.place(nextTo: note.fileURL, subfolder: attachmentFolder, timestamp: .now)
-        let markdown = placement.markdown
         editor.onFileMaking?(placement.url)
+        Task { @MainActor in await finishPlacing(png, as: placement, in: document) }
+        return placement.markdown
+    }
+
+    /// What follows a new picture's link going in — a pasted one, or one from
+    /// the photo library, the camera, or an iPhone near a Mac: the picture
+    /// written where its placement says, off the main actor; the link put
+    /// right when that name was taken on disk, which the placing did not look
+    /// for (`ImagePaste.place`); taken out again when nothing was written —
+    /// never a note that shows a picture it does not have; and its
+    /// description filled in by on-device Vision. Each rewrite goes through
+    /// the document, so it reaches the parser and the undo stack as typing
+    /// does, and near the caret: a document-wide search would rewrite an
+    /// identical earlier link instead. And the caret is kept where it was in
+    /// the text (`EditorProxy.replaceFirst`) — an alt text filled in before it
+    /// left it inside the alt text on iOS.
+    ///
+    /// `inserted` is the text as it went in, when that was more than the link
+    /// — a paragraph of its own (`asParagraph`) — so a picture never written
+    /// is taken back with its blank lines.
+    private func finishPlacing(_ bytes: Data, as placement: ImagePaste.Placement,
+                               in document: EditorDocument, inserted: String? = nil) async {
+        guard let written = await ImagePaste.write(bytes, to: placement) else {
+            takeBack(inserted, or: placement.markdown, in: document)
+            return
+        }
+        if written != placement {
+            proxy.replaceFirst(placement.markdown, with: written.markdown, in: document)
+        }
+        editor.onFileMade?(written.url)
+        guard let alt = await VisionAlt.describe(written.url) else { return }
+        proxy.replaceFirst(written.markdown, with: "![\(alt)](\(written.linkPath))", in: document)
+    }
+
+    /// A picture's link out again — with the blank lines it went in with, when
+    /// they are still round it — so the note is as it was.
+    private func takeBack(_ inserted: String?, or markdown: String, in document: EditorDocument) {
+        if let inserted, inserted != markdown, proxy.replaceFirst(inserted, with: "", in: document) { return }
+        proxy.replaceFirst(markdown, with: "", in: document)
+    }
+
+    // MARK: - Insert Image
+
+    /// Where a picture was asked for: the caret, in the document on screen
+    /// then, as its text stood (`EditorDocument.revision`) — or no caret at
+    /// all, for a note only opened (`EditorDocument.caret`).
+    private struct PictureAsk {
+        let caret: NSRange?
+        let document: ObjectIdentifier
+        let revision: Int
+    }
+
+    /// Insert Image, from the keyboard's bar or the Format menu: the caret
+    /// kept — a picker takes the focus, and the link goes where the person
+    /// was — and the picker for `source` shown.
+    private func askForPicture(_ source: EditorImageSource) {
+        guard isEditable, let document else { return }
+        pictureAsk = PictureAsk(caret: document.caret, document: ObjectIdentifier(document),
+                                revision: document.revision)
+        switch source {
+        case .collection: choosingFromCollection = true
+        case .photoLibrary: choosingFromPhotos = true
+        case .camera: takingPhoto = CameraCapture.isAvailable
+        }
+    }
+
+    /// The ask a chosen picture answers — taken, so the next picture asks
+    /// again.
+    private func takePictureAsk() -> PictureAsk? {
+        defer { pictureAsk = nil }
+        return pictureAsk
+    }
+
+    /// Where a chosen picture's link goes, asked once the picture is ready:
+    /// where the caret was when it was asked for, if the note's text has not
+    /// changed since, and where the caret is now if it has — an offset kept
+    /// across typing names another place, inside a word. Nil when the note
+    /// on screen is not the one it was asked for: the editor is one view for
+    /// every note, and the link went into whichever was open by the time a
+    /// photo had loaded, at the other's offset — past its end, on the Mac,
+    /// an exception.
+    ///
+    /// And never inside the front matter. A note only opened has no caret —
+    /// the view's `{0, 0}` is not one (`EditorDocument.caret`) — and offset 0
+    /// is its `---`: a picture put there made the block a rule and a heading,
+    /// and its tags and aliases were gone at the next save. With no caret the
+    /// picture goes at the end of the note; with one in the front matter, at
+    /// the start of the body (`FrontMatter.bodyOffset`).
+    private func pictureInsertion(for ask: PictureAsk?, in document: EditorDocument) -> NSRange? {
+        guard proxy.shows(document) else { return nil }
+        let asked = if let ask, ask.document == ObjectIdentifier(document), ask.revision == document.revision {
+            ask.caret
+        } else {
+            document.caret
+        }
+        let text = document.text
+        let length = (text as NSString).length
+        guard let asked else { return NSRange(location: length, length: 0) }
+        let range = clamped(asked, in: document)
+        let body = FrontMatter.bodyOffset(in: text)
+        return range.location < body ? NSRange(location: min(body, length), length: 0) : range
+    }
+
+    private func clamped(_ range: NSRange, in document: EditorDocument) -> NSRange {
+        let length = (document.text as NSString).length
+        guard range.location != NSNotFound else { return NSRange(location: length, length: 0) }
+        let location = min(max(0, range.location), length)
+        return NSRange(location: location, length: min(max(0, range.length), length - location))
+    }
+
+    /// `markdown` in place of `range` as a paragraph of its own
+    /// (`asParagraph`), and the focus back with the caret after it, so typing
+    /// goes on after the picture. Returns the text as it went in, and where
+    /// the link ends in the note — where a rewrite of it looks, not from the
+    /// caret, which is past the blank lines after it — or nil when the editor
+    /// took nothing, and nothing is to be written for it.
+    private func put(_ markdown: String, at range: NSRange,
+                     in document: EditorDocument) -> (block: String, linkEnd: Int)? {
+        let range = clamped(range, in: document)
+        // Inside whatever holds the caret's line — a callout, a quote, a list
+        // item — with its markers on every line it adds (`ParagraphInsertion`).
+        let placed = ParagraphInsertion.paragraph(markdown, at: range, in: document.text as NSString,
+                                                  container: document.paragraphContainer(at: range.location))
+        guard proxy.replace(range: placed.range, with: placed.text) else { return nil }
+        proxy.focus(at: NSRange(location: placed.range.location + (placed.text as NSString).length, length: 0))
+        let before = (placed.text as NSString).range(of: markdown).location
+        return (placed.text, placed.range.location + before + (markdown as NSString).length)
+    }
+
+    /// A picture put in on purpose is a paragraph of its own: a blank line
+    /// before it unless the note starts there or one is there already, and
+    /// after it unless the note ends there or one is there. At the caret as it
+    /// was, beside text, it was a picture inside that paragraph — drawn from
+    /// the end of the line's last word, and off across the page. (A paste
+    /// stays at the caret exactly, as a paste does anywhere.) This is the rule
+    /// with nothing holding the line; inside a callout, a quote or a list item
+    /// the container's markers go on every line too
+    /// (`ParagraphInsertion.paragraph`, which `put` uses).
+    nonisolated static func asParagraph(_ markdown: String, at range: NSRange, in text: NSString) -> String {
+        ParagraphInsertion.paragraph(markdown, at: range, in: text, container: .none).text
+    }
+
+    /// A picture from the photo library or the camera: written into the
+    /// collection beside the note, as a pasted one is, as `Photo-….jpg` — its
+    /// bytes made, and a HEIC photo re-encoded as JPEG, off the main actor
+    /// (`PhotoBytes`, `PictureFile.storable`). Put in only once it is ready,
+    /// and only into the note it was asked for (`pictureInsertion`); nothing
+    /// is written for a note that has been left.
+    private func insertNew(_ bytes: @escaping PhotoBytes, asked ask: PictureAsk?,
+                           into document: EditorDocument) {
         Task { @MainActor in
-            guard let written = await ImagePaste.write(png, to: placement) else {
-                // Not written: the Markdown comes back out, as a paste that
-                // wrote nothing inserted nothing — never a note that shows a
-                // picture it does not have.
-                document.replaceFirst(markdown, with: "", near: proxy.selection().location)
+            guard let stored = await offMain({ bytes().flatMap { PictureFile.storable($0) } }),
+                  let range = pictureInsertion(for: ask, in: document) else { return }
+            let placement = ImagePaste.place(nextTo: note.fileURL, subfolder: attachmentFolder,
+                                             timestamp: .now, stem: "Photo", ext: stored.ext)
+            // The link first: a picture whose link did not go in is a picture
+            // no note shows.
+            guard let block = put(placement.markdown, at: range, in: document)?.block else {
+                ImagePaste.release(placement)
                 return
             }
-            // Written under the next name — the one chosen was taken on disk,
-            // which the choosing did not look for (`ImagePaste.place`): the
-            // Markdown follows the picture, as the alt text below does.
-            if written != placement {
-                document.replaceFirst(markdown, with: written.markdown, near: proxy.selection().location)
-            }
-            editor.onFileMade?(written.url)
-            guard let alt = await VisionAlt.describe(written.url) else { return }
-            // Rewrite through the document so the edit reaches the parser and
-            // the undo stack, exactly as typing would. `near:` is the caret —
-            // the placeholder was just inserted there, and a document-wide
-            // search would rewrite an identical earlier embed instead.
-            document.replaceFirst(written.markdown, with: "![\(alt)](\(written.relativePath))",
-                                  near: proxy.selection().location)
+            editor.onFileMaking?(placement.url)
+            await finishPlacing(stored.data, as: placement, in: document, inserted: block)
         }
-        return markdown
+    }
+
+    /// A picture already in the collection: linked where it is, from the
+    /// note's folder (`PictureFile.markdown`) — nothing copied — and
+    /// described by Vision when it is on this device. One an iCloud vault
+    /// keeps online is not downloaded for a description.
+    private func insertExisting(_ file: CollectionFile, asked ask: PictureAsk?, into document: EditorDocument) {
+        guard let range = pictureInsertion(for: ask, in: document) else { return }
+        let markdown = PictureFile.markdown(showing: file.url, in: note.fileURL)
+        guard let linkEnd = put(markdown, at: range, in: document)?.linkEnd else { return }
+        let url = file.url
+        Task { @MainActor in
+            guard await FileIO.onScanLane(for: url, { FileIO.isMaterialized(at: url) }),
+                  let alt = await VisionAlt.describe(url) else { return }
+            // Near where it went in: from the caret, past the blank lines
+            // after it, the search missed it and took the first link to the
+            // same picture in the note — one put in before and never
+            // described.
+            proxy.replaceFirst(markdown, with: "![\(alt)]" + markdown.dropFirst(3), in: document, near: linkEnd)
+        }
+    }
+
+    /// A photo from an iPhone or iPad near a Mac (Continuity Camera): named
+    /// now, for the link the editor puts at the caret, by its type
+    /// (`PictureFile.fileExtension`), and written as a chosen picture is —
+    /// re-encoded off the main actor when it must be.
+    private func importPicture(_ data: Data, type: UTType, into document: EditorDocument) -> String? {
+        guard isEditable else { return nil }
+        let placement = ImagePaste.place(nextTo: note.fileURL, subfolder: attachmentFolder, timestamp: .now,
+                                         stem: "Photo", ext: PictureFile.fileExtension(for: type))
+        editor.onFileMaking?(placement.url)
+        // A paragraph of its own, as a chosen picture is — inside what holds
+        // the caret's line. The editor puts it at the caret itself, so a
+        // placing that would move it (a caret among a line's markers) is not
+        // taken: the paragraph is put as with nothing holding it.
+        let caret = clamped(proxy.selection(), in: document)
+        let text = document.text as NSString
+        let placed = ParagraphInsertion.paragraph(placement.markdown, at: caret, in: text,
+                                                  container: document.paragraphContainer(at: caret.location))
+        let block = placed.range == caret ? placed.text : Self.asParagraph(placement.markdown, at: caret, in: text)
+        Task { @MainActor in
+            let stored = await offMain { PictureFile.storable(data) }
+            guard let stored, stored.ext == placement.url.pathExtension else {
+                ImagePaste.release(placement)
+                takeBack(block, or: placement.markdown, in: document)
+                return
+            }
+            await finishPlacing(stored.data, as: placement, in: document, inserted: block)
+        }
+        return block
     }
 
     /// A pasted bare URL becomes a Markdown link whose text is upgraded to the
@@ -598,8 +849,7 @@ struct EditorHost: View {
         if let (markdown, url) = SmartPaste.urlLink(fromString: SmartPaste.pasteboardString()) {
             Task { @MainActor in
                 guard let title = await SmartPaste.fetchTitle(url) else { return }
-                document.replaceFirst(markdown, with: "[\(title)](\(url.absoluteString))",
-                                      near: proxy.selection().location)
+                proxy.replaceFirst(markdown, with: "[\(title)](\(url.absoluteString))", in: document)
             }
             return markdown
         }
@@ -638,16 +888,36 @@ struct EditorHost: View {
         )
     }
 
-    /// The block-embed renderer: resolves `![[file]]` image embeds relative to
-    /// the note (sibling, then the attachments subfolder), and renders Mermaid /
-    /// math / tables / `![[Note]]` transclusions via the app renderers.
+    /// The block-embed renderer: finds the pictures a note shows, and renders
+    /// Mermaid / math / tables / `![[Note]]` transclusions via the app
+    /// renderers.
+    ///
+    /// A Markdown image is a path from the note's folder — then, as it always
+    /// was here, the pictures folder beside it. An `![[photo.png]]` is found
+    /// as Obsidian finds it, anywhere in the collection
+    /// (`CollectionEmbedProvider.pictureURL`); it looked only beside the note
+    /// and in its pictures folder, so a vault keeping its pictures in its top
+    /// folder — Obsidian's default — or in one folder of their own showed a
+    /// line of text for every picture outside the top folder.
     private func makeBlockRenderer() -> BlockRenderAdapter {
-        let noteDir = note.fileURL.deletingLastPathComponent()
-        let subfolder = attachmentFolder.trimmingCharacters(in: .whitespaces)
+        // Where the note is, as of each picture asked for, not as of this
+        // renderer's making: a note renamed or moved keeps its document, and
+        // the renderer with it (`EditorDocumentStore.documentMoved`), and its
+        // pictures were found from the folder it had left.
+        let place = NotePlace(note: note.fileURL, attachmentFolder: attachmentFolder)
         let embed = embedProvider
         return BlockRenderAdapter(
-            resolve: { target in
-                let name = target.split(separator: "#", maxSplits: 1).first.map(String.init) ?? target
+            place: place,
+            resolve: { picture in
+                let spot = place.now
+                let noteURL = spot.note
+                let noteDir = noteURL.deletingLastPathComponent()
+                let subfolder = spot.attachmentFolder
+                if picture.byName, let embed {
+                    return await embed.pictureURL(for: picture, from: noteURL,
+                                                  attachmentFolder: subfolder, waitForList: true)
+                }
+                let name = picture.path
                 let candidates = [
                     noteDir.appendingPathComponent(name),
                     subfolder.isEmpty ? nil : noteDir.appendingPathComponent(subfolder).appendingPathComponent(name),
@@ -694,7 +964,7 @@ struct EditorHost: View {
                     // drew the picture in Preview and a broken-image box in
                     // Edit — the same markup, the same page builder, two base
                     // URLs.
-                    baseURL: noteDir,
+                    baseURL: place.now.note.deletingLastPathComponent(),
                     // And what it points at is read as every file a note shows
                     // is: through `FileIO`, off the main actor (§51.64).
                     readFile: { await FileIO.embeddedData(at: $0) })
@@ -932,5 +1202,24 @@ final class DocumentLoad {
         guard model.adopt(document.text, fromLoad: revision) else { return false }
         matched(document, model)
         return true
+    }
+}
+
+private extension View {
+    /// The camera, full screen, for Insert Image ▸ Take Photo… on iPhone and
+    /// iPad (`CameraCapture`). The Mac takes one with an iPhone or iPad near
+    /// it — Continuity Camera, in the editor's context menu.
+    func takingPhoto(isPresented: Binding<Bool>, onFinish: @escaping (PhotoBytes?) -> Void) -> some View {
+        #if os(iOS)
+        fullScreenCover(isPresented: isPresented) {
+            CameraCapture { photo in
+                isPresented.wrappedValue = false
+                onFinish(photo)
+            }
+            .ignoresSafeArea()
+        }
+        #else
+        self
+        #endif
     }
 }

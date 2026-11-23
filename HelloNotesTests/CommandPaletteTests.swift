@@ -29,7 +29,7 @@ struct CommandPaletteTests {
     /// Every command available at once — a window with a collection, a note, a
     /// provider and several tabs open.
     private func fullActions() -> AppActions {
-        AppActions(
+        var actions = AppActions(
             canNewNote: true, newNote: {}, todaysNote: {}, openLauncher: {},
             canOpenQuickly: true, openQuickly: {},
             canGraph: true, graphView: {},
@@ -54,6 +54,8 @@ struct CommandPaletteTests {
             reviewLinks: {}, composeNote: {},
             newWindow: {}, find: {}, searchAllCollections: {},
             editorMode: .edit, setEditorMode: { _ in })
+        actions.insertImage = { _ in }
+        return actions
     }
 
     /// Ids the palette must offer when everything is available.
@@ -86,6 +88,9 @@ struct CommandPaletteTests {
         "format-bold", "format-italic", "format-strikethrough", "format-highlight",
         "format-code", "format-quote", "format-ul", "format-ol",
         "format-h1", "format-h2", "format-h3",
+        // Insert Image's sources — the camera's only where there is one,
+        // which the Mac running this is not.
+        "insert-image-collection", "insert-image-photoLibrary",
     ]
 
     @Test func everyCommandIsInThePalette() {

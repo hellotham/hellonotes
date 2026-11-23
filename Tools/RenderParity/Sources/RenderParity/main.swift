@@ -1101,14 +1101,22 @@ struct SweepHTMLRenderer: BlockRenderer {
     func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? {
         tally.begin()
         defer { tally.end() }
-        if case .image(let target) = kind {
-            // The app's rule: scale down to the pane, never up.
+        if case .image(let target, let isWikiEmbed, let width, let height) = kind {
+            // The app's rule, asked of the package rather than copied: the
+            // size the note asks for (`![A cat|300](cat.png)`), or the
+            // picture's own scaled down to the pane, never up. And the name
+            // the app reads: an embed's inner text up to its pipe and less
+            // its subpath (`PictureNames.embedTarget`) — `pic.png|300` is
+            // `pic.png` — and a Markdown image's path less its fragment, as
+            // `PictureEmbed` reads them.
             guard let imageBase else { return nil }
-            let url = ParityScheme.resolve(target, under: imageBase)
+            let name = isWikiEmbed ? PictureNames.embedTarget(target)
+                : String(target.prefix { $0 != "#" })
+            let url = ParityScheme.resolve(name, under: imageBase)
             guard let image = NSImage(contentsOf: url), image.size.width > 0 else { return nil }
-            guard image.size.width > maxWidth else { return image }
-            let scale = maxWidth / image.size.width
-            let size = CGSize(width: maxWidth, height: (image.size.height * scale).rounded())
+            guard image.size.width > maxWidth || width != nil || height != nil else { return image }
+            let size = PictureNames.drawnSize(natural: image.size, maxWidth: maxWidth,
+                                              width: width, height: height)
             // Drawn, not just sized. This used to return a bare
             // `NSImage(size:)` on the grounds that a height sweep needs the
             // size and nothing else — true of `--spec`, and false of the one

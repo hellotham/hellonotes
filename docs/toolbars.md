@@ -368,8 +368,27 @@ keyboard accessory drew over the status bar on an iPad with a hardware keyboard.
 | Platform | Where formatting lives |
 |---|---|
 | **macOS** | the **Format** menu, with shortcuts: Bold ⌘B, Italic ⌘I, Heading 1–3 ⌥⌘1–3, Bulleted List ⇧⌘7, Numbered List ⇧⌘9, and Strikethrough, Highlight, Inline Code and Blockquote without shortcuts |
-| **iPad** | the system's **shortcuts bar** (`inputAssistantItem`), the floating pill that carries the language selector and dictation, including with a hardware keyboard. Leading: **Text Style** (Bold, Italic, Strikethrough, Highlight, Code) and **Lists** (Blockquote, Bulleted List, Numbered List); trailing: **Headings** (1–3). A group collapses to its representative button when the pill is short |
-| **iPhone** | an **`inputAccessoryView`**: a 44pt `UIToolbar` above the keyboard with all eleven commands in a row, since iPhone has no shortcuts bar |
+| **iPad** | the system's **shortcuts bar** (`inputAssistantItem`), the floating pill that carries the language selector and dictation, including with a hardware keyboard. Leading: **Text Style** (Bold, Italic, Strikethrough, Highlight, Code) and **Lists** (Blockquote, Bulleted List, Numbered List); trailing: **Headings** (1–3) and **Insert Image** (1.3.7). A group collapses to its representative button when the pill is short |
+| **iPhone** | an **`inputAccessoryView`**: a `UIToolbar` above the keyboard with the eleven formatting commands, and Insert Image in Edit, since iPhone has no shortcuts bar. iOS 27 draws it as a floating row of what fits — Bold, Italic, Strikethrough, Highlight, Code — and folds the rest into a **⋯** menu |
+
+**Every item has a title, not only a picture.** A bar that runs out of room
+folds its items into a ⋯ menu and titles each row from the item's `title` —
+never from its accessibility label — so the iPhone's menu held six bare
+glyphs, the headings, the lists and the quote, from the day the bar was made.
+They were found under 1.3.7's Insert Image, the first item given a title. The
+title is the accessibility label's words; the bar draws the image.
+
+**Insert Image** is a menu of the sources — **Choose from Collection…**,
+**Choose from Photos…**, and **Take Photo…** where there is a camera — in that
+order, which the menu draws from the bottom up: on the iPad's bar and in the
+iPhone's ⋯ menu Take Photo… was at the top (the simulator, iOS 27; nothing in
+the app sets the order). Each opens the
+host's picker (`EditorHost`); a photo is written into the collection where
+pasted pictures go, and the link is put at the caret as a paragraph of its own.
+It is offered only by a text view that can put a picture in
+(`PictureRequesting`, the live editor): the source editor installs this bar too,
+in Markdown and Split, and there it would be listed and do nothing — as
+Format ▸ Insert Image is Edit's alone.
 
 Both editors install it: the live editor (Edit) and `SourceEditor` (Markdown and
 Split). `EditorToolbarContractTests` checks the arrangement's outline in five
@@ -380,6 +399,9 @@ end-editing notifications; that every formatting button and group is named; and
 that every popover in `NoteEditorView` and `ContentView` states its compact
 adaptation. It does not check which buttons are in each group, their order, the
 count or the heights; those are described here from `EditorCommands.swift`.
+`FormattingBarTests` (the editor package, on iOS) asks the bar as built: every
+item and group stand-in has a title, Insert Image offers each source the device
+has, and a text view that cannot put a picture in offers no Insert Image.
 
 **Selection actions** are menu items, not a bar. On a selection, the editor's
 context menu on the Mac and the system edit menu on iOS offer **Rewrite with

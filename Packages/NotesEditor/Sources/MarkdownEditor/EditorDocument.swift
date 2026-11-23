@@ -133,6 +133,11 @@ public final class EditorDocument {
     /// The block structure (read-only; used for outline, caret context…).
     public var blocks: [Block] { parse.blocks }
 
+    /// What draws this document's embeds — for a host whose renderer keeps
+    /// something it must update, such as where the note now is, for a document
+    /// that outlives a rename.
+    public var blockRenderer: (any BlockRenderer)? { services.blockRenderer }
+
     /// What text typed at the very end of the note starts as, when the note
     /// ends in a blank line: a body paragraph at the margin, which is what the
     /// parser will make of it. `nil` when the last line holds something — what
@@ -300,21 +305,23 @@ public final class EditorDocument {
     ///   it finds nothing — because `range(of:)` alone matches the **first**
     ///   occurrence anywhere, so pasting the same URL twice and letting the
     ///   title arrive rewrote the earlier link instead of the one just pasted.
+    /// - Returns: the range replaced, in the text as it was — what a view
+    ///   showing the document needs to keep its caret where it was in the
+    ///   text (`selection(_:across:becoming:)`); `nil` when `needle` is not
+    ///   there. The edit goes into the storage and moves no caret: a
+    ///   `UITextView` keeps its caret's *offset* through it, so an alt text
+    ///   filled in before the caret left the caret inside the alt text.
     @discardableResult
     public func replaceFirst(_ needle: String, with replacement: String,
-                             near hint: Int? = nil) -> Bool {
+                             near hint: Int? = nil) -> NSRange? {
         let ns = storage.mutableString
-        var found = NSRange(location: NSNotFound, length: 0)
-        if let hint, hint != NSNotFound, hint <= ns.length {
-            let start = max(0, hint - needle.utf16.count)
-            found = ns.range(of: needle, options: [],
-                             range: NSRange(location: start, length: ns.length - start))
-        }
-        if found.location == NSNotFound { found = ns.range(of: needle) }
-        guard found.location != NSNotFound else { return false }
+        guard let found = firstRange(of: needle, near: hint) else { return nil }
 
         // Register the inverse before mutating, on the same `UndoManager` the
-        // text view uses (`undoManager(for:)` hands it this one). The edit goes
+        // Mac's text view uses (`undoManager(for:)` hands it this one) — a
+        // `UITextView` undoes on UIKit's stack instead, so on iOS a document
+        // on screen is rewritten through the view (`EditorProxy.replaceFirst`)
+        // and this path is the off-screen one's. The edit goes
         // straight into the storage rather than through
         // `shouldChangeText`/`didChangeText`, so without this the substitution
         // is invisible to undo: ⌘Z replayed the *paste*'s registration against
@@ -326,7 +333,49 @@ public final class EditorDocument {
             document.replaceFirst(replacement, with: previous, near: location)
         }
         storage.replaceCharacters(in: found, with: replacement)
-        return true
+        return found
+    }
+
+    /// What holds the line at `location` — a list item or a quote — for a
+    /// paragraph put in there on purpose (`ParagraphInsertion`): read from
+    /// this document's own parse, so a line in a fence is code, not a
+    /// container.
+    public func paragraphContainer(at location: Int) -> ParagraphInsertion.Container {
+        ParagraphInsertion.container(in: storage.mutableString, at: location, parse: parse)
+    }
+
+    /// Where `needle` is: looked for from just before `hint` on, then
+    /// anywhere — the occurrence `replaceFirst` replaces, for a view that
+    /// makes the edit itself (`EditorProxy.replaceFirst` on iOS).
+    func firstRange(of needle: String, near hint: Int?) -> NSRange? {
+        let ns = storage.mutableString
+        var found = NSRange(location: NSNotFound, length: 0)
+        if let hint, hint != NSNotFound, hint <= ns.length {
+            let start = max(0, hint - needle.utf16.count)
+            found = ns.range(of: needle, options: [],
+                             range: NSRange(location: start, length: ns.length - start))
+        }
+        if found.location == NSNotFound { found = ns.range(of: needle) }
+        return found.location == NSNotFound ? nil : found
+    }
+
+    /// Where `selection` stands in the text once `replaced` — a range of the
+    /// text as it was — has become text `length` long: where it was when it
+    /// ends at or before the rewrite, moved by the difference when it starts
+    /// at or after the rewrite's end, grown or shrunk when it held all of it,
+    /// and after the new text when it began or ended inside it.
+    public nonisolated static func selection(_ selection: NSRange, across replaced: NSRange,
+                                             becoming length: Int) -> NSRange {
+        guard selection.location != NSNotFound else { return selection }
+        let delta = length - replaced.length
+        if NSMaxRange(selection) <= replaced.location { return selection }
+        if selection.location >= NSMaxRange(replaced) {
+            return NSRange(location: selection.location + delta, length: selection.length)
+        }
+        if selection.location <= replaced.location, NSMaxRange(selection) >= NSMaxRange(replaced) {
+            return NSRange(location: selection.location, length: selection.length + delta)
+        }
+        return NSRange(location: replaced.location + length, length: 0)
     }
 
     public func replaceText(_ newText: String) {
@@ -1691,7 +1740,8 @@ public final class EditorDocument {
             }
             switch node.kind {
             case .wikiLink(let target, true):
-                return .image(target: target)
+                let size = PictureNames.sizeSuffix(of: target)
+                return .image(target: target, isWikiEmbed: true, width: size?.width, height: size?.height)
             case .link(let url, true):
                 // Local files only. `.image` falls back to a note-transclusion
                 // card when the target is not an image *file*, which is right
@@ -1704,7 +1754,11 @@ public final class EditorDocument {
                 // Percent-encoded paths are what a file with a space in its
                 // name becomes when it is written as a Markdown link.
                 let path = url.removingPercentEncoding ?? url
-                return path.isEmpty ? nil : .image(target: path)
+                // Obsidian sizes a Markdown image in its description:
+                // `![A cat|300](cat.png)`.
+                let size = PictureNames.sizeSuffix(of: ns.substring(with: node.contentRange))
+                return path.isEmpty ? nil
+                    : .image(target: path, isWikiEmbed: false, width: size?.width, height: size?.height)
             default:
                 return nil
             }
@@ -2145,23 +2199,6 @@ public final class EditorDocument {
     /// left as source.
     @ObservationIgnored private var inlineImagesInFlight: [Int: Set<Int>] = [:]
 
-    /// Draw every `![alt](path)` and `<img src=…>` that sits *inside* a line
-    /// of text as the picture it stands for.
-    ///
-    /// The editor has always drawn a paragraph that is nothing but an image —
-    /// `refreshBlockEmbed` collapses the whole block — and has never drawn one
-    /// with a word beside it. `My ![foo](train.jpg)` stayed as source while the
-    /// Preview showed a sentence with a photograph in it, which is the largest
-    /// difference the two surfaces can have and reads in the height sweep as a
-    /// tidy two points: the source happens to occupy one line, and one line of
-    /// prose is 24pt where a line seating a 20pt picture is 26.
-    ///
-    /// `![[embed]]` is deliberately not here. The host's renderer answers an
-    /// `.image` whose target is not an image *file* with a note-transclusion
-    /// card, which is the right answer for a block on a line of its own and an
-    /// absurd one for a word inside a sentence. Nothing in the editor can tell
-    /// the two apart, so the construct that can mean "transclude a note" stays
-    /// as source inline.
     /// Is this block covered by an HTML span that is currently collapsed to its
     /// picture?
     ///
@@ -2174,6 +2211,22 @@ public final class EditorDocument {
         !revealed && htmlSpan(at: blockIndex) != nil
     }
 
+    /// Draw every `![alt](path)` and `<img src=…>` that sits *inside* a line
+    /// of text as the picture it stands for.
+    ///
+    /// The editor has always drawn a paragraph that is nothing but an image —
+    /// `refreshBlockEmbed` collapses the whole block — and has never drawn one
+    /// with a word beside it. `My ![foo](train.jpg)` stayed as source while the
+    /// Preview showed a sentence with a photograph in it, which is the largest
+    /// difference the two surfaces can have and reads in the height sweep as a
+    /// tidy two points: the source happens to occupy one line, and one line of
+    /// prose is 24pt where a line seating a 20pt picture is 26.
+    ///
+    /// An `![[embed]]` is here only when it names a picture
+    /// (`inlineImageKind`, by `PictureNames`). The host's renderer answers an
+    /// `.image` whose target is not a picture with a note's card, which is the
+    /// right answer for a block on a line of its own and an absurd one for a
+    /// word inside a sentence, so an embed of a note stays as source inline.
     private func refreshInlineImages(blockIndex: Int, revealed: Bool) {
         guard let renderer = services.blockRenderer, !revealed,
               !isInsideCollapsedSpan(blockIndex, revealed: revealed),
@@ -2191,10 +2244,10 @@ public final class EditorDocument {
 
         for span in StyleSpec.contentSpans(for: block, text: ns, lines: parse.lines) {
             for node in imageBearingNodes(in: span, text: ns, references: references) {
-                guard let target = inlineImageTarget(node.kind), node.range.length > 1,
+                guard let picture = inlineImageKind(node, in: ns), node.range.length > 1,
                       node.range.location + node.range.length <= ns.length else { continue }
                 var hasher = Hasher()
-                hasher.combine(target); hasher.combine(Int(maxWidth)); hasher.combine(dark)
+                hasher.combine(picture); hasher.combine(Int(maxWidth)); hasher.combine(dark)
                 let key = hasher.finalize()
 
                 if let image = inlineImageCache[key] {
@@ -2209,8 +2262,7 @@ public final class EditorDocument {
                 }
                 inlineImagesInFlight[key] = [node.range.location]
                 Task { [weak self] in
-                    let image = await renderer.render(.image(target: target),
-                                                      maxWidth: maxWidth, darkMode: dark)
+                    let image = await renderer.render(picture, maxWidth: maxWidth, darkMode: dark)
                     guard let self else { return }
                     let waiting = self.inlineImagesInFlight.removeValue(forKey: key) ?? []
                     guard let image else { return }
@@ -2265,13 +2317,29 @@ public final class EditorDocument {
         return out
     }
 
-    /// The image file an inline node stands for, or nil if it stands for
+    /// The picture an inline node stands for, or nil if it stands for
     /// something the editor must leave as source.
-    private func inlineImageTarget(_ kind: InlineKind) -> String? {
+    ///
+    /// An `![[…]]` embed is one when it names a picture: in a list item, a
+    /// quote or a callout, or beside a word, Obsidian draws `![[photo.png]]`
+    /// in the line, as GitHub draws `![](photo.png)`, and Preview drew it
+    /// while Edit showed the source. A note's card is not drawn here — only
+    /// a paragraph of its own has room for one (`blockEmbedKind`).
+    private func inlineImageKind(_ node: InlineNode, in ns: NSString) -> BlockEmbedKind? {
         let url: String
-        switch kind {
-        case .link(let u, true): url = u
+        var size: (width: Int, height: Int?)?
+        switch node.kind {
+        case .link(let u, true):
+            url = u
+            // `![A cat|300](cat.png)` — Obsidian's size, in the description.
+            if node.contentRange.location + node.contentRange.length <= ns.length {
+                size = PictureNames.sizeSuffix(of: ns.substring(with: node.contentRange))
+            }
         case .rawImage(let src): url = src
+        case .wikiLink(let target, true):
+            guard PictureNames.isPicture(PictureNames.embedTarget(target)) else { return nil }
+            let size = PictureNames.sizeSuffix(of: target)
+            return .image(target: target, isWikiEmbed: true, width: size?.width, height: size?.height)
         default: return nil
         }
         // Local files only, exactly as `blockEmbedKind` decides it: fetching a
@@ -2280,7 +2348,8 @@ public final class EditorDocument {
         // A file with a space in its name is percent-encoded by the time it is
         // written as a Markdown link.
         let path = url.removingPercentEncoding ?? url
-        return path.isEmpty ? nil : path
+        return path.isEmpty ? nil
+            : .image(target: path, isWikiEmbed: false, width: size?.width, height: size?.height)
     }
 
     /// Conceal an inline image's source and put the picture in its place,

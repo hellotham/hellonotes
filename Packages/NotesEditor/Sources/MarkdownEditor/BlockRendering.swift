@@ -25,8 +25,24 @@ import UIKit
 
 /// A block embed the editor can ask the host to render.
 public enum BlockEmbedKind: Sendable, Equatable, Hashable {
-    /// `![[target]]` — an embedded image/attachment by vault name.
-    case image(target: String)
+    /// A picture, or a note shown in place: `![alt](path)`, or `![[target]]`.
+    ///
+    /// `isWikiEmbed` says which was written, because the two name a file
+    /// differently. A Markdown image's destination is a path from the note's
+    /// folder, decoded, as GitHub and Preview read it. An `![[…]]` embed's
+    /// `target` is its inner text as written — `photo.png|300`, alias and all
+    /// — and Obsidian finds the file it names *anywhere* in the vault, by
+    /// name, and reads a size after the pipe. Told only the name, the host
+    /// could not do either: the two forms reached it as the same string, and
+    /// `![[photo.png]]` in a note one folder away from its picture was drawn
+    /// as a line of text.
+    ///
+    /// `width` and `height` are the size the note asks for, in Obsidian's one
+    /// way of asking — after the last pipe of the description or the embed,
+    /// `![A cat|300](cat.png)`, `![[cat.png|300x200]]`
+    /// (`PictureNames.sizeSuffix`) — read here for both spellings, so the
+    /// host need not know where each keeps it.
+    case image(target: String, isWikiEmbed: Bool = false, width: Int? = nil, height: Int? = nil)
     /// A ```` ```mermaid ```` fenced diagram.
     case mermaid(source: String)
     /// A `$$ … $$` display-math block.

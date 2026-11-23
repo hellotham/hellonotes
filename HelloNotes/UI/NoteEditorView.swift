@@ -33,13 +33,16 @@ struct NoteEditorView: View {
     /// Notes that mention the open note by name but don't link it.
     var unlinkedMentions: [Note] = []
 
-    /// Renders `![[Note]]` transclusions to inline images.
+    /// Renders `![[Note]]` transclusions to inline images and finds
+    /// `![[photo.png]]`'s pictures.
     var embedProvider: CollectionEmbedProvider
 
     /// Git state for the collection — drives the version-history button.
     var git: GitService
-    /// The collection the Git pane acts on. Separate from `git` because the
-    /// pane needs the folder too — for the cloud-provider guardrail.
+    /// The note's own collection: the one the Git pane acts on — separate
+    /// from `git` because the pane needs the folder too, for the
+    /// cloud-provider guardrail — and the one Insert Image ▸ Choose from
+    /// Collection… lists the pictures of.
     var gitCollection: Collection?
     /// Show Git identity and accounts. A sheet on one platform and a pushed
     /// screen on the other, so the shell owns it.
@@ -89,10 +92,6 @@ struct NoteEditorView: View {
     /// The pane this editor was given — the width rules resolve against it.
     @Environment(\.shell) private var shell
     @State private var showGitPane = false
-
-    /// Folder (relative to the note) where pasted images are saved; empty means
-    /// the same folder as the note. Configured in Settings.
-    @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
 
     /// How the editor presents the note. Persisted across launches; macOS
     /// defaults to the live WYSIWYG editor.
@@ -252,10 +251,14 @@ struct NoteEditorView: View {
                     NoteEditorPane(
                         editor: editor,
                         note: note,
-                        // This view is handed its vocabulary rather than a
-                        // collection — it is used by the note *window* too,
-                        // which has no shell around it.
-                        collection: nil,
+                        // The note's own collection, for what only a
+                        // collection can answer: the pictures Insert Image
+                        // lists. Its vocabulary is handed in below — this view
+                        // is the note *window*'s too, which has no shell — and
+                        // what is handed in wins over the collection's. Nil
+                        // here, Choose from Collection… said "No Collection"
+                        // for every note, in both windows.
+                        collection: gitCollection,
                         appearance: appearance,
                         intelligenceSettings: intelligenceSettings,
                         mode: mode,

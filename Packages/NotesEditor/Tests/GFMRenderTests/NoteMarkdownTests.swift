@@ -90,10 +90,18 @@ struct NoteMarkdownTests {
         #expect(String(href).removingPercentEncoding == editors, "Preview links to \(href); the editor to \(editors)")
     }
 
-    /// A picture sized in a table — `![[picture.png\|300]]` — is the picture.
+    /// A picture sized in a table — `![[picture.png\|300]]` — is the picture,
+    /// at its size: kept as Obsidian sizes a Markdown image, its pipe escaped
+    /// for the row, and read by the page.
     @Test func aTablesSizedEmbedNamesThePicture() {
         let note = "| Picture |\n| --- |\n| ![[picture.png\\|300]] |\n"
-        #expect(NoteMarkdown.prepare(note) == "| Picture |\n| --- |\n| ![](picture.png) |\n")
+        #expect(NoteMarkdown.prepare(note) == "| Picture |\n| --- |\n| ![\\|300](picture.png) |\n")
+        #expect(GFMRenderer.page(NoteMarkdown.prepare(note))
+                    .contains("<td><img src=\"picture.png\" alt=\"\" width=\"300\" /></td>"))
+        // Out of a table too; and a note's alias still has nowhere to show.
+        #expect(NoteMarkdown.prepare("![[photo.png|120x80]]") == "![\\|120x80](photo.png)")
+        #expect(NoteMarkdown.prepare("![[photo.png|A cat]]") == "![](photo.png)")
+        #expect(NoteMarkdown.prepare("![[Meeting|300]]") == "![](Meeting)")
     }
 
     /// An alias holding an escaped pipe of its own keeps it escaped, or the

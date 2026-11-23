@@ -21,6 +21,7 @@
 
 // **Not macOS-only.** This file was `#if os(macOS)` and used no AppKit and
 // no Mac-only API — the gate was the only thing keeping it off iPad.
+import MarkdownEditor   // EditorImageSource
 import SwiftUI
 
 /// One runnable command.
@@ -365,6 +366,23 @@ extension AppActions {
             for level in 1...3 {
                 add("format-h\(level)", "Format", "Heading \(level)", "textformat.size") {
                     format(.heading(level))
+                }
+            }
+        }
+
+        // Insert Image, as the Format menu offers it — the camera only where
+        // there is one — and on the same condition: an editable note, in
+        // Edit, where the editor that answers it is listening. Each row names
+        // the command whole, having no menu above it to name it.
+        if let insertImage, editorMode == .edit {
+            for source in EditorImageSource.allCases where source != .camera || CameraCapture.isAvailable {
+                let title = switch source {
+                case .collection: "Insert Image from Collection…"
+                case .photoLibrary: "Insert Image from Photos…"
+                case .camera: "Insert Image from Camera…"
+                }
+                add("insert-image-\(source.rawValue)", "Format", title, source.systemImage) {
+                    insertImage(source)
                 }
             }
         }

@@ -109,6 +109,7 @@ read). SwiftUI places the two custom menus, Note and Format, after View.
 | — | | |
 | Close Tab | *(⌘W, not shown)* | more than one tab is open, and the selected note has its editor |
 | — Close · Close All | ⌘W · ⌥⌘W | *(system, macOS)* |
+| Import From Device ▸ *a device* ▸ Take Photo · Scan Documents · Add Sketch | | *(system, macOS)*: the iPhones and iPads nearby, from `ImportFromDevicesCommands`; what one takes goes to the editor at its caret |
 | — | | |
 | Export as HTML… | | a note is open |
 | Export as PDF… | | a note is open |
@@ -197,11 +198,36 @@ the note, not about which subsystem answers.
 | Blockquote | |
 | Bulleted List | ⇧⌘7 |
 | Numbered List | ⇧⌘9 |
+| — | |
+| Insert Image ▸ Choose from Collection… · Choose from Photos… · Take Photo… | |
 
 Enabled when a note is open **in Edit mode**: the formatting bus is installed by
 the live editor, which is mounted only in Edit. The same commands are also on
 the iPad's system shortcuts bar and in the iPhone's accessory toolbar above the
 keyboard ([toolbars.md](toolbars.md) §9).
+
+**Insert Image** (1.3.7) is a submenu of the sources, by the names the keyboard
+bar's menu uses (`EditorImageSource`, in its order, which the bar's menu draws
+from the bottom up — [toolbars.md](toolbars.md) §9): **Choose from Collection…**, **Choose from
+Photos…**, and **Take Photo…** only where there is a camera — never on the Mac,
+which takes a photo with an iPhone or iPad nearby through **Import from iPhone
+or iPad** in the editor's context menu (Continuity Camera), and through **File ▸
+Import From Device** in the menu bar — the system's own command set
+(`ImportFromDevicesCommands`), added after the 1.3.7 review because a command
+behind a right-click alone broke the rule that none lives only behind a
+gesture; macOS lists each device nearby with its Take Photo, Scan Documents and
+Add Sketch (read from the menu bar on 2026-11-23). Insert Image posts
+`EditorBus.insertImage(editor:)` to the live editor, whose host shows the
+picker. A photo is written into the collection where pasted pictures go
+(Settings ▸ General ▸ Attachments) and linked as a paragraph of its own at the
+caret — the caret as it was when the picture was asked for, or as it is when
+the picture is ready if the note was typed into meanwhile; nothing is put in,
+or written, if another note is open by then. In a callout, a quote or a list
+item it stays inside: every line it adds carries the container's markers
+(`ParagraphInsertion`). A picture chosen from the
+collection is linked where it is, by a path from the note's folder; the list
+offers only what Edit and Preview both draw (`PictureNames`), not every file
+the system calls an image.
 
 ### 3.7 Window *(system)*
 
@@ -227,7 +253,9 @@ this menu.
 - **Disabled commands are omitted, not greyed.** A menu shows what exists in a
   fixed place you can learn; a search result you cannot act on is a dead end.
 - **What it lists:** the menus' commands, plus one row per template ("Insert
-  Template: *name*") and one per way of adding a collection. The editor modes
+  Template: *name*"), one per way of adding a collection and one per Insert
+  Image source ("Insert Image from Collection…", "…from Photos…", "…from
+  Camera…" where there is one). The editor modes
   appear only as the three you are not in. It has no row for itself, and none
   for **About**, **Settings…**, **Open Default Collection** or **HelloNotes
   Help**.

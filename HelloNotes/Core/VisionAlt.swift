@@ -4,9 +4,10 @@
 //
 //  Created by Chris Tham on 12/7/2026.
 //
-//  On-device "vision intelligence" for pasted-image alt text: classifies the
-//  image (and OCRs any prominent text) with the Vision framework to produce a
-//  short, descriptive alt string. No network, no API key.
+//  On-device "vision intelligence" for a picture's alt text — a pasted one,
+//  or one put in with Insert Image: classifies the image (and reads any
+//  prominent text) with the Vision framework to produce a short, descriptive
+//  alt string. No network, no API key.
 //
 
 // **Cross-platform.** Vision ships on iOS, and every function here already
@@ -32,17 +33,47 @@ nonisolated enum VisionAlt {
     static func describe(_ url: URL) async -> String? {
         guard let data = await FileIO.onScanLane(for: url, { try? FileIO.readData(at: url) }),
               let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+              // Turned the way it is meant to be seen, and no larger than
+              // Vision needs. A camera keeps a photo's orientation as a tag,
+              // and decoded as stored a page photographed upright was read
+              // on its side — no words, so no description from them; and a
+              // 48-megapixel photo decoded whole is some 190 MB.
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 4096,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+              ] as CFDictionary) else { return nil }
 
-        // Prefer readable text (screenshots, diagrams) when present.
+        let labels = await classify(cgImage)
+        // Readable text first, when there is some — a screenshot, a diagram,
+        // a page photographed — and called a screenshot only when the
+        // classifier says it is one: a photographed page is its words.
         if let text = await recognizedText(cgImage), text.count >= 8 {
-            return "Screenshot: \(String(text.prefix(80)))"
+            let excerpt = markdownSafe(String(text.prefix(80)))
+            let isScreenshot = labels?.components(separatedBy: ", ").contains("screenshot") ?? false
+            return isScreenshot ? "Screenshot: \(excerpt)" : excerpt
         }
-        // Otherwise, top classification labels.
-        if let labels = await classify(cgImage), !labels.isEmpty {
-            return labels
-        }
-        return nil
+        // Otherwise, what the classifier saw.
+        return labels.map(markdownSafe)
+    }
+
+    /// `text` as a Markdown image's description can hold it — the alt text
+    /// is written into `![…](…)` as it comes. A bracket ends the description
+    /// early or leaves it open, and a backslash escapes the `]` after it:
+    /// either way the note shows the Markdown, not the picture. And a pipe
+    /// went from punctuation to a size when Obsidian's were read
+    /// (`PictureNames.sizeSuffix`): a photographed sign reading
+    /// "Platform | 12" drew its picture twelve points wide.
+    static func markdownSafe(_ text: String) -> String {
+        String(text.map { character -> Character in
+            switch character {
+            case "[": "("
+            case "]": ")"
+            case "\\", "|": "/"
+            case _ where character.isNewline: " "
+            default: character
+            }
+        })
     }
 
     /// The top classification labels, already joined (so this and
@@ -71,7 +102,15 @@ nonisolated enum VisionAlt {
                 let joined = lines.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 once.resume(joined.isEmpty ? nil : joined)
             }
-            request.recognitionLevel = .fast
+            // `.accurate`, never `.fast`, which reads "text" into a photo: five
+            // of the simulator's seven sample photos of flowers and water came
+            // back as lines like `411 4fk• éji`, at the same confidence (0.3–0.5)
+            // as a real screenshot's, and became their alt text. `.accurate`
+            // read nothing in any of the seven and every line of the
+            // screenshots at 1.0, in 50–190 ms each once its model is loaded
+            // (measured on a Mac, 2026-11-22; the first request in a process
+            // that has never used it waits for the model).
+            request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
             perform(request, on: image) { once.resume(nil) }
         }

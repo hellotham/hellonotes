@@ -46,6 +46,10 @@ struct NotePreview: View {
     /// Leaving the foreground is the last moment an iPhone promises: the place
     /// on the page is kept then (`keepPlace`).
     @Environment(\.scenePhase) private var scenePhase
+    /// The pictures folder beside a note (Settings ▸ General ▸ Attachments),
+    /// where an `![[photo.png]]` is looked for after the note's folder and the
+    /// collection's top folder, and before the rest (`PictureIndex`).
+    @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
 
     /// Where the reader is on the page, as Preview reports it — as often as
     /// once a frame while scrolling, so in an object no view observes — and
@@ -89,12 +93,17 @@ struct NotePreview: View {
 
     /// Everything the page is built from: the text as of the last pause, how
     /// it is drawn — the theme's size, the accent its links take, light or
-    /// dark — and what its embeds resolve to.
+    /// dark — and what its embeds resolve to, its pictures among them: they
+    /// are looked for from the note's folder and in its pictures folder
+    /// (`PreviewSuperset.PictureContext`), so a note moved, or the setting
+    /// changed, is a page built again.
     private struct Inputs: Equatable {
         let text: EditorModel.TextVersion?
         let style: GFMPreview.PageStyle
         let isDark: Bool
         let embeds: Int
+        let folder: String
+        let attachmentFolder: String
     }
 
     var body: some View {
@@ -109,7 +118,9 @@ struct NotePreview: View {
         // Read here, in this body, so this view alone is redrawn when a card
         // may have changed — not whatever holds it.
         let inputs = Inputs(text: editor.settledText.version, style: style,
-                            isDark: isDark, embeds: embeds?.revision ?? 0)
+                            isDark: isDark, embeds: embeds?.revision ?? 0,
+                            folder: note.fileURL.deletingLastPathComponent().path,
+                            attachmentFolder: attachmentFolder.trimmingCharacters(in: .whitespaces))
         Group {
             if let page {
                 GFMPreview(html: page.html,
@@ -196,7 +207,9 @@ struct NotePreview: View {
             show(html, for: editorID, note: noteURL)
             plain = html
         }
-        let superset = await PreviewSuperset.apply(to: text, isDark: inputs.isDark, embeds: embeds)
+        let pictures = PreviewSuperset.PictureContext(note: noteURL, attachmentFolder: inputs.attachmentFolder)
+        let superset = await PreviewSuperset.apply(to: text, isDark: inputs.isDark, embeds: embeds,
+                                                   pictures: pictures)
         guard !Task.isCancelled else { return }
         // Not again if it is the page on screen: the cards' revision moves
         // with every save in the collection, and most change no card here.

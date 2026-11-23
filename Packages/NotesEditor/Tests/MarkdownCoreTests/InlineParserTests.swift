@@ -47,6 +47,21 @@ import Testing
         #expect(parse("5 $ 3 $ 1").isEmpty)   // "$ 3 $" is prose, not math
     }
 
+    /// `$$…$$` on a line the block rule never sees — a quote's, a callout's,
+    /// an item's — is one formula, its four dollars the markers. Read as
+    /// `$`, `$…$`, `$`, it was drawn with a dollar each side.
+    @Test func doubleDollarsInALineAreOneFormula() {
+        let formula = parse("> $$E=mc^2$$").filter { $0.kind == .math }
+        #expect(formula.count == 1)
+        #expect(formula.first?.range == NSRange(location: 2, length: 10))
+        #expect(formula.first?.contentRange == NSRange(location: 4, length: 6))
+        // Spaces inside are the formula's.
+        #expect(node("$$ x + y $$", .math)?.contentRange == NSRange(location: 2, length: 7))
+        // A `$$` that never closes is the `$` before a `$…$`, as Preview reads it.
+        #expect(node("$$x$", .math)?.range == NSRange(location: 1, length: 3))
+        #expect(node("cost $x^2$ here", .math)?.contentRange == NSRange(location: 6, length: 3))
+    }
+
     @Test func commentSpan() {
         let n = node("visible %%hidden%% visible", .comment)
         #expect(n?.contentRange == NSRange(location: 10, length: 6))

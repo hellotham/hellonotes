@@ -807,6 +807,46 @@ final class HelloNotesUITests: XCTestCase {
         #endif
     }
 
+    /// **Insert Image ▸ Choose from Collection… lists the note's own
+    /// collection**, reached the way a person reaches it: the keyboard's bar,
+    /// then the menu. The editor's view handed its pane no collection, so the
+    /// list said "No Collection" for every note in both windows, and no unit
+    /// test could see it — each was handed a collection of its own (1.3.7,
+    /// before it shipped). The sample collection has no pictures, so the
+    /// list says so: a collection with nothing to show, not none at all.
+    @MainActor
+    func testInsertImageListsTheNotesOwnCollection() throws {
+        #if os(iOS)
+        let app = launchPastSplash()
+        _ = try editorOfANewNote(in: app)
+        // On the bar, or in the ⋯ menu a phone folds the bar into.
+        let insert = app.buttons["Insert Image"].firstMatch
+        if !insert.waitForExistence(timeout: 5) {
+            let more = app.buttons["More"].firstMatch
+            if more.waitForExistence(timeout: 5) { more.tap() }
+        }
+        XCTAssertTrue(insert.waitForExistence(timeout: 5),
+                      "the keyboard's bar has no Insert Image, on it or in its ⋯ menu; its buttons: \(app.buttons.allElementsBoundByIndex.map(\.label))")
+        insert.tap()
+        let fromCollection = app.buttons["Choose from Collection…"].firstMatch
+        XCTAssertTrue(fromCollection.waitForExistence(timeout: 5), "Insert Image offers no Choose from Collection…")
+        fromCollection.tap()
+
+        let cancel = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10), "the collection's list never came up")
+        XCTAssertFalse(app.staticTexts["No Collection"].exists, "the list was handed no collection")
+        // A row is a button named for its file.
+        let pictureRows = app.buttons.matching(NSPredicate(format: "label MATCHES[c] %@",
+                                                           ".*\\.(png|jpe?g|gif|webp|heic|tiff?)"))
+        XCTAssertTrue(app.staticTexts["No Pictures"].waitForExistence(timeout: 5) || pictureRows.count > 0,
+                      "the list shows neither the collection's pictures nor that it has none")
+        cancel.tap()
+        XCTAssertTrue(cancel.waitForNonExistence(timeout: 5), "Cancel left the list up")
+        #else
+        throw XCTSkip("The keyboard's bar is iOS's.")
+        #endif
+    }
+
     /// ↑ from the first line of a note lands in its title, on a keyboard
     /// attached to an iPhone or iPad as on the Mac.
     ///

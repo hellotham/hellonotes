@@ -15,7 +15,9 @@
 
 import Foundation
 import CoreGraphics
+import MarkdownCore
 import MarkdownEditor
+import Synchronization
 
 #if canImport(AppKit)
 import AppKit
@@ -23,10 +25,42 @@ import AppKit
 import UIKit
 #endif
 
+/// Where the note a renderer draws for is, and its pictures folder — as of
+/// now. A note renamed or moved keeps its document (`EditorDocumentStore
+/// .documentMoved`), and the document keeps the renderer it was made with:
+/// read once, at the making, its pictures were looked for from the folder the
+/// note had left — drawn in Edit where Preview, which reads from where the
+/// note is, found none. The editor's host says where it is each time it shows
+/// the document, and when the setting changes.
+nonisolated final class NotePlace: Sendable {
+    struct Spot: Sendable, Equatable {
+        var note: URL
+        var attachmentFolder: String
+    }
+
+    private let spot: Mutex<Spot>
+
+    init(note: URL, attachmentFolder: String) {
+        spot = Mutex(Spot(note: note, attachmentFolder: attachmentFolder.trimmingCharacters(in: .whitespaces)))
+    }
+
+    var now: Spot { spot.withLock { $0 } }
+
+    func update(note: URL, attachmentFolder: String) {
+        let new = Spot(note: note, attachmentFolder: attachmentFolder.trimmingCharacters(in: .whitespaces))
+        spot.withLock { $0 = new }
+    }
+}
+
 actor BlockRenderAdapter: BlockRenderer {
-    /// Resolve an embed target (`![[name]]`) to a file URL, or nil. Sendable
-    /// so it can be captured across the actor boundary.
-    private let resolve: @Sendable (String) -> URL?
+    /// Where the note is (`NotePlace`), for a host to keep current — `nil`
+    /// for a renderer that draws for no note.
+    nonisolated let place: NotePlace?
+    /// The file a picture names, or nil. Asynchronous, because an
+    /// `![[photo.png]]` is found among the collection's pictures, and a note
+    /// opened at launch is drawn before the collection's walk has listed them
+    /// (`CollectionEmbedProvider.pictureURL`).
+    private let resolve: @Sendable (PictureEmbed) async -> URL?
     /// Render a Mermaid diagram to an image (hops to the main actor inside —
     /// the macOS flip uses AppKit image drawing, which is main-thread-only).
     private let renderMermaid: @Sendable (String, Bool) async -> PlatformImage?
@@ -49,7 +83,8 @@ actor BlockRenderAdapter: BlockRenderer {
     private var reads: [String: Task<Data?, Never>] = [:]
 
     init(
-        resolve: @escaping @Sendable (String) -> URL?,
+        place: NotePlace? = nil,
+        resolve: @escaping @Sendable (PictureEmbed) async -> URL?,
         renderMermaid: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
         renderMath: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
         renderTransclusion: @escaping @Sendable (String, Bool) async -> PlatformImage? = { _, _ in nil },
@@ -57,6 +92,7 @@ actor BlockRenderAdapter: BlockRenderer {
         renderHTML: @escaping @Sendable (String, CGFloat, Bool, Bool) async -> PlatformImage? = { _, _, _, _ in nil },
         renderInlineMath: @escaping @Sendable (String, CGFloat, Bool) async -> PlatformImage? = { _, _, _ in nil }
     ) {
+        self.place = place
         self.resolve = resolve
         self.renderMermaid = renderMermaid
         self.renderMath = renderMath
@@ -72,13 +108,27 @@ actor BlockRenderAdapter: BlockRenderer {
 
     func render(_ kind: BlockEmbedKind, maxWidth: CGFloat, darkMode: Bool) async -> PlatformImage? {
         switch kind {
-        case .image(let target):
-            // An image *file* → load + scale here (off-main). Otherwise the
-            // target is a note → render a transclusion card on the main actor.
-            if let url = resolve(target), Self.imageExtensions.contains(url.pathExtension.lowercased()) {
-                return await imageEmbed(url: url, maxWidth: maxWidth)
+        case .image(let target, let isWikiEmbed, let width, let height):
+            // A picture → load + scale here (off-main), at the size the note
+            // asks for (`![[photo.png|300]]`, `![A cat|300](cat.png)`, read
+            // by the editor). Otherwise the target is a note → render a
+            // transclusion card on the main actor.
+            let picture = PictureEmbed(target: target, isWikiEmbed: isWikiEmbed)
+            if picture.isPicture {
+                guard let url = await resolve(picture) else { return nil }
+                // The editor's reading, or — asked by something that did not
+                // read one — the embed's own.
+                let asked = width != nil || height != nil
+                return await imageEmbed(url: url, maxWidth: maxWidth,
+                                        width: asked ? width : picture.width,
+                                        height: asked ? height : picture.height)
             }
-            return scaled(await renderTransclusion(target, darkMode), maxWidth: maxWidth)
+            // The note the embed names, as every reader of a link reads it
+            // (`WikiLinkSyntax`): `![[Note|alias]]` names `Note`. Handed the
+            // inner text whole, the card looked up `Note|alias` and was never
+            // drawn — in Edit, while Preview, which split it, drew it.
+            let note = isWikiEmbed ? String(WikiLinkSyntax.split(target).target) : target
+            return scaled(await renderTransclusion(note, darkMode), maxWidth: maxWidth)
         case .mermaid(let source):
             return scaled(await renderMermaid(source, darkMode), maxWidth: maxWidth)
         case .math(let source):
@@ -92,7 +142,10 @@ actor BlockRenderAdapter: BlockRenderer {
         }
     }
 
-    private func imageEmbed(url: URL, maxWidth: CGFloat) async -> PlatformImage? {
+    /// `width` and `height` are the size the note asks for, which Preview's
+    /// `<img width height>` honours as well — up past the picture's own size
+    /// and down to the pane's width, as `max-width: 100%` does.
+    private func imageEmbed(url: URL, maxWidth: CGFloat, width: Int? = nil, height: Int? = nil) async -> PlatformImage? {
         // As the file is now: a URL answers from its first look off the main
         // run loop (`FileIO.currentResourceValues`, implemented.md §51.56).
         // Asked here and not on the picture's lane: a date is the file
@@ -100,7 +153,7 @@ actor BlockRenderAdapter: BlockRenderer {
         // picture already drawn would wait behind another file's (§51.64).
         let mtime = (try? FileIO.currentResourceValues(at: url, keys: [.contentModificationDateKey]))?
             .contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
-        let key = "\(url.path)\u{1}\(mtime)\u{1}\(Int(maxWidth))"
+        let key = "\(url.path)\u{1}\(mtime)\u{1}\(Int(maxWidth))\u{1}\(width ?? 0)x\(height ?? 0)"
         if let cached = cache[key] { return cached }
         // Through `FileIO`: waited for if it is online-only, with a deadline,
         // then read under coordination. It was read raw — racing a provider
@@ -117,7 +170,7 @@ actor BlockRenderAdapter: BlockRenderer {
         if let cached = cache[key] { return cached }
         guard let data, let image = PlatformImageKit.loadImage(data: data, named: url.lastPathComponent)
         else { return nil }
-        let result = scaled(image, maxWidth: maxWidth) ?? image
+        let result = sized(image, maxWidth: maxWidth, width: width, height: height) ?? image
         // Keys are mtime-versioned; bound the cache so edited/embedded images
         // don't accumulate rendered images for the process lifetime.
         if cache.count > 64 { cache.removeAll(keepingCapacity: true) }
@@ -131,6 +184,14 @@ actor BlockRenderAdapter: BlockRenderer {
         return PlatformImageKit.scaled(image, maxWidth: maxWidth)
     }
 
-    private static let imageExtensions: Set<String> =
-        ["png", "jpg", "jpeg", "gif", "heic", "webp", "bmp", "tiff", "svg"]
+    /// A picture at the size its note asks for, as a page lays out
+    /// `<img width="W" height="H">` under `max-width: 100%`
+    /// (`PictureNames.drawnSize`, the rule the parity harness draws by too).
+    private func sized(_ image: PlatformImage, maxWidth: CGFloat, width: Int?, height: Int?) -> PlatformImage? {
+        let natural = image.size
+        guard natural.width > 0, natural.height > 0 else { return nil }
+        guard width != nil || height != nil else { return scaled(image, maxWidth: maxWidth) }
+        let size = PictureNames.drawnSize(natural: natural, maxWidth: maxWidth, width: width, height: height)
+        return PlatformImageKit.resized(image, to: size)
+    }
 }

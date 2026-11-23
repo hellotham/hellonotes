@@ -166,11 +166,50 @@ import { href } from '../../lib/paths';
 
   <h2 id="images">Images and attachments</h2>
   <p>
+    <strong>Insert Image</strong> puts a picture where the caret is, as a paragraph of its own — at
+    the end of the note when no caret is in it, never inside its properties, and inside the
+    callout, quote or list item the caret is in. It is
+    on the bar above the keyboard on iPhone and iPad — on iPhone in the bar’s <strong>⋯</strong> menu
+    when the row is full — and in the <strong>Format</strong> menu on the Mac, in Edit.
+  </p>
+  <ul>
+    <li>
+      <strong>Choose from Collection…</strong> lists the pictures already in the collection, with a
+      field to find one by name or folder, and links the one you choose where it is. Nothing is
+      copied.
+    </li>
+    <li>
+      <strong>Choose from Photos…</strong> saves the photo into the collection and links it. On
+      iPhone and iPad it keeps where it was taken unless you turn that off in the picker:{' '}
+      <strong>⋯ ▸ Options ▸ Location</strong>.
+    </li>
+    <li>
+      <strong>Take Photo…</strong>, on an iPhone or iPad, does the same with a new photo, which
+      carries no location. On a Mac, <strong>File ▸ Import From Device</strong> — or{' '}
+      <strong>Import from iPhone or iPad</strong> in the note’s context menu — takes one with a phone
+      or tablet nearby.
+    </li>
+  </ul>
+  <p>
     Paste an image and it is written into your collection as a PNG with a relative Markdown link —
     by default into an <code>assets</code> folder beside the note, which you can change in{' '}
-    <strong>Settings ▸ General</strong>. Non-Markdown files in the folder (PDFs, images, CSVs)
-    appear in the tree when <strong>View ▸ Show Non-Note Files</strong> is on, and open in a native
-    viewer.
+    <strong>Settings ▸ General</strong>. A photo from Insert Image goes to the same place, as JPEG
+    when other apps could not show it as it came (an iPhone’s HEIC). Each new picture’s
+    description is filled in a moment later, on the device: the words in it, or what it shows.
+    Non-Markdown files in the folder (PDFs, images, CSVs) appear in the tree when{' '}
+    <strong>View ▸ Show Non-Note Files</strong> is on, and open in a native viewer.
+  </p>
+  <p>
+    Pictures written the Obsidian way are shown too, in Edit and in Preview alike — on a line of
+    their own, in a list, a quote or a callout. Obsidian usually writes only a picture’s name, so{' '}
+    <code>![[photo.png]]</code> is found by name anywhere in the collection, whether its pictures
+    are kept in the collection’s top folder, a folder of their own or beside each note — while{' '}
+    <strong>View ▸ Show Non-Note Files</strong> is on, as it is unless you turn it off. With it off,
+    a picture is found only beside the note, in the collection’s top folder or in the note’s
+    pictures folder. <code>![[photo.png|300]]</code> shows it 300 points wide, never wider than
+    the text, and <code>|300x200</code> sets both sides. Obsidian sizes an ordinary picture the
+    same way, at the end of its description — <code>![A cat|300](cat.png)</code> — and that is
+    read too.
   </p>
   <p>
     Pasting rich text from a browser converts it to clean Markdown rather than pasting HTML.

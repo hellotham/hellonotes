@@ -18,6 +18,7 @@
 //  command that cannot run where it is greys out.
 
 import SwiftUI
+import MarkdownEditor
 #if os(macOS)
 import AppKit
 #endif
@@ -273,6 +274,10 @@ struct AppActions {
     /// Send a Markdown formatting command to the active editor. `nil` when no
     /// editable note is focused (Format menu greys out).
     var format: ((FormatAction) -> Void)?
+    /// Insert a picture at the caret of the active editor — from the
+    /// collection, the photo library or the camera — which shows the picker
+    /// (`EditorBus.insertImage`). `nil` with no editable note focused.
+    var insertImage: ((EditorImageSource) -> Void)? = nil
     /// Actions on the selected note; `nil` when no note is selected.
     var note: NoteMenuActions?
     /// Rebuild the focused collection's index from scratch, ignoring the cache
@@ -529,6 +534,18 @@ struct HelloNotesCommands: Commands {
         }
         #endif
 
+        // MARK: Import from iPhone or iPad — Continuity Camera, in the menu
+        // bar as well as the editor's context menu: a command behind a
+        // right-click alone is one nobody finds ("No command lives only
+        // behind a gesture"). The system fills the items from the devices
+        // nearby and hands what one takes to the first responder that asks
+        // for a picture — the editor (`MarkdownTextView.validRequestor`).
+        #if os(macOS)
+        ImportFromDevicesCommands()
+        #else
+        // An iPad takes a photo itself: Format ▸ Insert Image ▸ Take Photo….
+        #endif
+
         // MARK: File — creation and opening. ⌘N makes a note (the app's
         // primary object, the Mail convention); New Window moves to ⌥⌘N.
         CommandGroup(replacing: .newItem) {
@@ -761,6 +778,20 @@ struct HelloNotesCommands: Commands {
             Button("Numbered List") { actions?.format?(.orderedList) }
                 .keyboardShortcut("9", modifiers: [.command, .shift])
                 .disabled(!canFormat)
+
+            Divider()
+
+            // The keyboard bar's Insert Image on iPhone and iPad, by the same
+            // names (`EditorImageSource`). Take Photo only where there is a
+            // camera: the Mac takes one with an iPhone or iPad near it, from
+            // the editor's context menu (Continuity Camera).
+            Menu("Insert Image") {
+                ForEach(EditorImageSource.allCases.filter { $0 != .camera || CameraCapture.isAvailable },
+                        id: \.self) { source in
+                    Button(source.title) { actions?.insertImage?(source) }
+                }
+            }
+            .disabled(!canFormat || actions?.insertImage == nil)
         }
 
         // MARK: View — editor presentation and the app's overview surfaces.

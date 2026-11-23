@@ -11,25 +11,31 @@
 //  a changed alias still reaches the notes that link by it. And a save neither
 //  cancels a rebuild nor is undone by one, begun before it or after (`KeptSave`).
 //
+//  Each race is staged with a hold (`WorkHold`): the save, the rebuild or the
+//  relatedness build waits where the test holds it, and goes on when the test
+//  lets it go. They were staged by size — a note of two to eight megabytes,
+//  two hundred notes changed on disk — which made each race likely and never
+//  certain: on a busy runner or a one-thread pool the race could be over
+//  before it was looked at (implemented.md §51.81).
+//
 
 import Foundation
 import Testing
 @testable import HelloNotes
 
-/// Serialized, because what these tests hold is the order in which work lands
-/// — and several make a rebuild slow on purpose. Side by side, one test's
-/// rebuild is another's main-actor contention: the scan and rebuild that must
-/// land while a save is still being parsed waited behind a neighbour's, and
-/// the check that the test had set up what it claims to failed under the full
-/// suite while passing alone.
+/// Serialized, because what these tests hold is the order in which work
+/// lands. The holds make each order certain; one at a time keeps a failure
+/// one test's.
 @Suite(.serialized)
 @MainActor
 struct SaveIndexingTests {
 
-    /// `count` lines of prose: 28,000 is about 2 MB, which takes long enough
-    /// to parse to still be running while something else happens.
-    private static func prose(lines count: Int) -> String {
-        String(repeating: "A line of the note — café, naïve, 日本語, and some prose after it.\n", count: count)
+    /// Hold the next `kind` of work: a note's next save (`path` the note's),
+    /// or the collection's next rebuild or relatedness build (its folder's).
+    /// Let go at the end of the test whatever happens — `defer` — or the work
+    /// waits for ever.
+    private func hold(_ kind: WorkHold.Kind, for path: String) -> WorkHold {
+        WorkHold.arm(kind, for: path)
     }
 
     /// Whether `condition` comes to hold within `timeout`, sleeping between
@@ -111,35 +117,51 @@ struct SaveIndexingTests {
         }, "the relatedness index never heard of the save")
     }
 
-    /// Two saves of one note, the first slow to parse and the second quick:
-    /// the second lands first, and the first, landing last, must not put its
-    /// links back over it.
+    /// Two saves of one note, the first held: the second lands first, and the
+    /// first, landing last, must not put its links back over it.
     @Test func anOlderSaveThatLandsLastIsNotApplied() async throws {
         let (collection, root) = try await indexedCollection(["Note": "Plain.", "Old": "Old.", "New": "New."])
         defer { try? FileManager.default.removeItem(at: root) }
+        let first = hold(.saveParse, for: try #require(collection.note(titled: "Note")).fileURL.path)
+        defer { first.release() }
 
-        try save("Links to [[Old]].\n" + Self.prose(lines: 28_000), to: "Note", in: collection)
+        try save("Links to [[Old]].\n", to: "Note", in: collection)
         try save("Links to [[New]].\n", to: "Note", in: collection)
+        #expect(await eventually { links(of: "Note", in: collection) == ["New"] }, "the newer save never landed")
+        #expect(await eventually { first.isReached }, "the first save never came to its hold")
+        first.release()
         await settled(collection)
 
         #expect(links(of: "Note", in: collection) == ["New"], "the older save was applied over the newer one")
     }
 
-    /// The same, with the index settled in between: the quick second save has
-    /// landed, and a third, slower still, begins while the first is parsing.
-    /// Numbered per note and cleared once applied, the third would be save 1
-    /// again — and the first, landing, would pass for it.
+    /// The same, with the index settled in between: the second save has
+    /// landed, and a third is made while the first is still held — and the
+    /// first lands while the third is out. Numbered per note and cleared once
+    /// applied, the third would be save 1 again — and the first, landing,
+    /// would pass for it.
     @Test func aSaveStillParsingAfterANewerOneLandedIsNeverApplied() async throws {
         let (collection, root) = try await indexedCollection([
             "Note": "Plain.", "Old": "Old.", "New": "New.", "Third": "Third.",
         ])
         defer { try? FileManager.default.removeItem(at: root) }
+        let path = try #require(collection.note(titled: "Note")).fileURL.path
+        let first = hold(.saveParse, for: path)
+        defer { first.release() }
 
-        try save("Links to [[Old]].\n" + Self.prose(lines: 28_000), to: "Note", in: collection)
+        try save("Links to [[Old]].\n", to: "Note", in: collection)
         try save("Links to [[New]].\n", to: "Note", in: collection)
-        #expect(await eventually { links(of: "Note", in: collection) == ["New"] })
-        #expect(collection.savesBeingIndexed == 1, "the first save finished before the third began, so this tests nothing")
-        try save("Links to [[Third]].\n" + Self.prose(lines: 112_000), to: "Note", in: collection)
+        #expect(await eventually { links(of: "Note", in: collection) == ["New"] }, "the second save never landed")
+        #expect(collection.savesBeingIndexed == 1, "the first save is not still out")
+
+        let third = hold(.saveParse, for: path)
+        defer { third.release() }
+        try save("Links to [[Third]].\n", to: "Note", in: collection)
+        #expect(await eventually { first.isReached && third.isReached }, "a save never came to its hold")
+        first.release()
+        #expect(await eventually { collection.savesBeingIndexed == 1 }, "the first save never landed")
+        #expect(links(of: "Note", in: collection) == ["New"], "the first save was applied while the third was out")
+        third.release()
         await settled(collection)
 
         #expect(links(of: "Note", in: collection) == ["Third"], "an earlier save was applied over a later one")
@@ -153,15 +175,17 @@ struct SaveIndexingTests {
         let (collection, root) = try await indexedCollection(["Doomed": "Plain.", "Target": "Target."])
         defer { try? FileManager.default.removeItem(at: root) }
         let doomed = try #require(collection.note(titled: "Doomed"))
+        let saving = hold(.saveParse, for: doomed.fileURL.path)
+        defer { saving.release() }
 
-        try save("---\naliases: [Ghost]\n---\nLinks to [[Target]].\n" + Self.prose(lines: 112_000),
-                 to: "Doomed", in: collection)
+        try save("---\naliases: [Ghost]\n---\nLinks to [[Target]].\n", to: "Doomed", in: collection)
         try FileManager.default.removeItem(at: doomed.fileURL)
         await collection.scanOffMain()
         let scanned = collection.derivedRevision
         collection.refreshDerived()
-        #expect(await eventually { collection.derivedRevision != scanned })
-        #expect(collection.savesBeingIndexed == 1, "the save was indexed before the note left, so this tests nothing")
+        #expect(await eventually { collection.derivedRevision != scanned }, "the rebuild after the scan never landed")
+        #expect(collection.savesBeingIndexed == 1, "the save is not still out")
+        saving.release()
         await settled(collection)
 
         #expect(collection.linkGraph.resolve("Ghost") == nil, "a note that has left is back in the link graph")
@@ -173,25 +197,22 @@ struct SaveIndexingTests {
     /// the collection holds, so a rebuild begun under a save takes the saved
     /// note's *old* record. Landing after the save was applied, it would put
     /// the old links back. Here it is begun while the save is parsed, and
-    /// made slow: every other note changed on disk, so it re-reads them all.
+    /// held until the save has landed.
     @Test func aRebuildBegunWhileASaveIsParsedDoesNotPutTheOldLinksBack() async throws {
-        var files = ["Note": "Links to [[Old]].", "Old": "Old.", "New": "New."]
-        for index in 0..<200 { files["Filler \(index)"] = Self.prose(lines: 300) }
-        let (collection, root) = try await indexedCollection(files)
+        let (collection, root) = try await indexedCollection(["Note": "Links to [[Old]].", "Old": "Old.", "New": "New."])
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(links(of: "Note", in: collection) == ["Old"])
-
-        for index in 0..<200 {
-            try Data((Self.prose(lines: 300) + "Changed.\n").utf8)
-                .write(to: root.appendingPathComponent("Filler \(index).md"))
-        }
-        await collection.scanOffMain()
+        let rebuild = hold(.rebuild, for: collection.rootURL.path)
+        defer { rebuild.release() }
 
         try save("Links to [[New]].", to: "Note", in: collection)
         collection.refreshDerived()
+        #expect(await eventually { rebuild.isReached }, "the rebuild never read the notes")
         await settled(collection)
-        // Long enough for that rebuild to have landed, had it gone on.
-        try await Task.sleep(for: .seconds(2))
+        #expect(links(of: "Note", in: collection) == ["New"], "the save never landed")
+        let saved = collection.derivedRevision
+        rebuild.release()
+        #expect(await eventually { collection.derivedRevision != saved }, "the rebuild never landed")
 
         #expect(links(of: "Note", in: collection) == ["New"], "a stale rebuild put the saved note's old links back")
     }
@@ -201,13 +222,25 @@ struct SaveIndexingTests {
     /// renames, so a link typed a moment ago is in a save still being parsed.
     /// Asked then, the graph did not know it, and the link was left naming a
     /// note that no longer exists.
+    ///
+    /// The save is held until the rename is seen waiting for it
+    /// (`waitingForSaves`). Let go at the rename's first wait, whatever that
+    /// was for, it landed while the rename looked at the disk — and the test
+    /// passed with the rename not waiting at all.
     @Test func aRenameRewritesALinkSavedJustBeforeIt() async throws {
         let (collection, root) = try await indexedCollection(["Target": "Target.", "Linker": "Plain."])
         defer { try? FileManager.default.removeItem(at: root) }
+        let saving = hold(.saveParse, for: try #require(collection.note(titled: "Linker")).fileURL.path)
+        defer { saving.release() }
 
-        try save("See [[Target]].\n" + Self.prose(lines: 56_000), to: "Linker", in: collection)
+        try save("See [[Target]].\n", to: "Linker", in: collection)
+        #expect(collection.savesBeingIndexed == 1, "the save is not still out")
         let target = try #require(collection.note(titled: "Target"))
-        _ = try #require(await collection.renameNote(target, to: "Renamed"))
+        let renaming = Task { await collection.renameNote(target, to: "Renamed") }
+        #expect(await eventually(timeout: .seconds(3)) { collection.waitingForSaves == 1 },
+                "the rename did not wait for the save still out")
+        saving.release()
+        _ = try #require(await renaming.value)
 
         let linker = root.appendingPathComponent("Linker.md")
         #expect(await eventually { (try? FileIO.readString(at: linker))?.hasPrefix("See [[Renamed]].") == true },
@@ -215,25 +248,23 @@ struct SaveIndexingTests {
     }
 
     /// A rename's re-index is a rebuild, and a save's patch cancelled the
-    /// rebuild in flight when it landed. A save flushed just before the rename
-    /// landed during the rename's rebuild, and the renamed note was never
-    /// indexed under its new name. The rebuild is made slow, as in the test
-    /// above.
+    /// rebuild in flight when it landed: a save landing during the rename's
+    /// rebuild, and the renamed note was never indexed under its new name.
+    /// The rename waits for the saves already made (`savesIndexed`), so the
+    /// save that lands during its rebuild is one made after it — a tab saving
+    /// as the person goes on typing — and the rebuild is held until it has.
     @Test func aRenameIsIndexedWhenASaveIsParsedAcrossIt() async throws {
-        var files = ["Target": "Target.", "Other": "Plain."]
-        for index in 0..<200 { files["Filler \(index)"] = Self.prose(lines: 600) }
-        let (collection, root) = try await indexedCollection(files)
+        let (collection, root) = try await indexedCollection(["Target": "Target.", "Other": "Plain."])
         defer { try? FileManager.default.removeItem(at: root) }
-        for index in 0..<200 {
-            try Data((Self.prose(lines: 600) + "Changed.\n").utf8)
-                .write(to: root.appendingPathComponent("Filler \(index).md"))
-        }
-        await collection.scanOffMain()
+        let rebuild = hold(.rebuild, for: collection.rootURL.path)
+        defer { rebuild.release() }
 
-        try save("Plain.\n" + Self.prose(lines: 28_000), to: "Other", in: collection)
         let target = try #require(collection.note(titled: "Target"))
         let renamed = try #require(await collection.renameNote(target, to: "Renamed"))
+        #expect(await eventually { rebuild.isReached }, "the rename's rebuild never read the notes")
+        try save("Changed.\n", to: "Other", in: collection)
         await settled(collection)
+        rebuild.release()
 
         #expect(await eventually { collection.linkGraph.resolve("Renamed") == renamed.fileURL },
                 "the renamed note was never indexed under its new name")
@@ -245,12 +276,15 @@ struct SaveIndexingTests {
         let (collection, root) = try await indexedCollection(["Doomed": "Plain."])
         defer { try? FileManager.default.removeItem(at: root) }
         let doomed = try #require(collection.note(titled: "Doomed"))
+        let saving = hold(.saveParse, for: doomed.fileURL.path)
+        defer { saving.release() }
 
-        try save("---\naliases: [Ghost]\n---\n" + Self.prose(lines: 112_000), to: "Doomed", in: collection)
+        try save("---\naliases: [Ghost]\n---\nPlain.\n", to: "Doomed", in: collection)
         try FileManager.default.removeItem(at: doomed.fileURL)
         let again = try #require(await collection.createNote(title: "Doomed"))
         #expect(again.fileURL == doomed.fileURL, "it was not made at the same path, so this tests nothing")
-        #expect(collection.savesBeingIndexed == 1, "the old save was indexed before the note was made again, so this tests nothing")
+        #expect(collection.savesBeingIndexed == 1, "the old save is not still out")
+        saving.release()
         await settled(collection)
 
         #expect(collection.linkGraph.resolve("Ghost") == nil, "the old save's alias was given to the new note")
@@ -258,20 +292,6 @@ struct SaveIndexingTests {
     }
 
     // MARK: - A rebuild and a save
-
-    /// Two hundred notes whose files change on disk once the collection is
-    /// indexed, so the next rebuild re-reads every one of them — long enough
-    /// for a save's patch to land while it is under way.
-    private static func fillers() -> [String: String] {
-        Dictionary(uniqueKeysWithValues: (0..<200).map { ("Filler \($0)", prose(lines: 300)) })
-    }
-
-    private func changeFillers(in root: URL) throws {
-        for index in 0..<200 {
-            try Data((Self.prose(lines: 300) + "Changed.\n").utf8)
-                .write(to: root.appendingPathComponent("Filler \(index).md"))
-        }
-    }
 
     /// A save patches the indexes in place and leaves the collection's record
     /// of the note's size and date as they were — so a rebuild from the index
@@ -333,19 +353,20 @@ struct SaveIndexingTests {
     /// awaits search's.
     @Test func aSaveDoesNotCancelTheRebuildADeleteAskedFor() async throws {
         for savedDuring in [false, true] {
-            var files = Self.fillers()
-            files["Doomed"] = "---\naliases: [Ghost]\n---\nPlain."
-            files["Other"] = "Plain."
-            let (collection, root) = try await indexedCollection(files)
+            let (collection, root) = try await indexedCollection([
+                "Doomed": "---\naliases: [Ghost]\n---\nPlain.", "Other": "Plain.",
+            ])
             defer { try? FileManager.default.removeItem(at: root) }
             #expect(collection.linkGraph.resolve("Ghost") != nil)
-            try changeFillers(in: root)
-            await collection.scanOffMain()
+            let rebuild = hold(.rebuild, for: collection.rootURL.path)
+            defer { rebuild.release() }
 
             let doomed = try #require(collection.note(titled: "Doomed"))
             await collection.deleteNote(doomed)
+            #expect(await eventually { rebuild.isReached }, "the delete's rebuild never read the notes")
             if savedDuring { try save("Changed.", to: "Other", in: collection) }
             await settled(collection)
+            rebuild.release()
             #expect(await eventually {
                 collection.linkGraph.resolve("Ghost") == nil && collection.search.aliases(of: doomed.fileURL).isEmpty
             }, "the deleted note is still in the link graph or search (a save during the rebuild: \(savedDuring))")
@@ -358,20 +379,21 @@ struct SaveIndexingTests {
     /// save, it does.
     @Test func aSaveDoesNotCancelTheRebuildAfterAWalk() async throws {
         for savedDuring in [false, true] {
-            var files = Self.fillers()
-            files["Edited elsewhere"] = "Plain."
-            files["Target"] = "Target."
-            files["Other"] = "Plain."
-            let (collection, root) = try await indexedCollection(files)
+            let (collection, root) = try await indexedCollection([
+                "Edited elsewhere": "Plain.", "Target": "Target.", "Other": "Plain.",
+            ])
             defer { try? FileManager.default.removeItem(at: root) }
-            try changeFillers(in: root)
             try Data("Links to [[Target]].\n".utf8).write(to: root.appendingPathComponent("Edited elsewhere.md"))
+            let rebuild = hold(.rebuild, for: collection.rootURL.path)
+            defer { rebuild.release() }
 
             // What `reconcileSoon` and `verifyAgainstFolder` do.
             await collection.scanOffMain()
             collection.refreshDerived()
+            #expect(await eventually { rebuild.isReached }, "the rebuild never read the notes")
             if savedDuring { try save("Changed.", to: "Other", in: collection) }
             await settled(collection)
+            rebuild.release()
             #expect(await eventually { links(of: "Edited elsewhere", in: collection) == ["Target"] },
                     "a change the walk found never reached the link graph (a save during the rebuild: \(savedDuring))")
         }
@@ -517,17 +539,21 @@ struct SaveIndexingTests {
     /// rebuilt them again. The control: made with no rebuild in flight, it is.
     @Test func aNoteMadeWhileARebuildRunsStaysInTheIndexes() async throws {
         for rebuilding in [false, true] {
-            let (collection, root) = try await indexedCollection(Self.fillers())
+            let (collection, root) = try await indexedCollection(["Other": "Plain."])
             defer { try? FileManager.default.removeItem(at: root) }
-            try changeFillers(in: root)
-            await collection.scanOffMain()
+            let rebuild = hold(.rebuild, for: collection.rootURL.path)
+            defer { rebuild.release() }
 
             let before = collection.derivedRevision
-            if rebuilding { collection.refreshDerived() }
+            if rebuilding {
+                collection.refreshDerived()
+                #expect(await eventually { rebuild.isReached }, "the rebuild never read the notes")
+            }
             let fresh = try #require(await collection.createNote(title: "Fresh"))
             if rebuilding {
                 #expect(collection.derivedRevision == before + 1,
                         "the rebuild landed before the note was made, so this tests nothing")
+                rebuild.release()
                 #expect(await eventually { collection.derivedRevision >= before + 2 }, "the rebuild never landed")
             }
             #expect(collection.linkGraph.resolve("Fresh") == fresh.fileURL,
@@ -541,29 +567,29 @@ struct SaveIndexingTests {
     /// were when the build began — and until it lands there is no index for a
     /// save to update, so a save made while it was built reached neither: the
     /// note stayed as the build had read it until the whole index was dropped.
-    /// The saved note is the newest, so the build reads it first, before the
-    /// save. The control: saved once the index exists, it is updated.
+    /// The build is held once it has read every note, the saved one among
+    /// them. The control: saved once the index exists, it is updated.
     @Test func aSaveMadeWhileRelatednessIsBuiltReachesIt() async throws {
         for savedDuring in [false, true] {
             let plain = "Plain, and long enough to be worth relating to anything that asks about it at all."
-            var files = Self.fillers()
-            files["Note"] = plain
-            let (collection, root) = try await indexedCollection(files)
+            let other = "Something else entirely, and long enough to be worth relating to anything that asks."
+            let (collection, root) = try await indexedCollection(["Note": plain, "Other": other])
             defer { try? FileManager.default.removeItem(at: root) }
-            try Data(plain.utf8).write(to: root.appendingPathComponent("Note.md"))
-            await collection.scanOffMain()
-            #expect(collection.notes.first?.title == "Note", "the note is not read first, so this tests nothing")
+            let build = hold(.relatednessBuild, for: collection.rootURL.path)
+            defer { build.release() }
 
             let building = Task { await collection.relatedNotes(to: "something", excluding: nil) }
             if savedDuring {
-                try await Task.sleep(for: .milliseconds(100))
+                #expect(await eventually { build.isReached }, "the build never read the notes")
                 #expect(!collection.hasRelatednessIndex, "the index was built before the save, so this tests nothing")
             } else {
+                build.release()
                 _ = await building.value
             }
             try save("Zanzibar, zanzibar, zanzibar — and enough after it to be worth relating to anything.",
                      to: "Note", in: collection)
             await settled(collection)
+            build.release()
             _ = await building.value
             let note = try #require(collection.note(titled: "Note"))
             #expect(await eventually(timeout: .seconds(3)) {

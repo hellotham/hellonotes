@@ -31,8 +31,8 @@
 
 # Commands
 - Build (macOS, full CLI build): `xcodebuild -project HelloNotes.xcodeproj -scheme HelloNotes -skipPackagePluginValidation build` — the Xcode MCP check above is the quick per-change gate; use this for full/Release verification. **Every app `xcodebuild` needs `-skipPackagePluginValidation`**: mlx-swift's `Cmlx` target carries a `CudaBuild` build-tool plugin (inert on Apple platforms), and without the flag the build fails at "Validate plug-in" before compiling a file. Xcode's GUI asks once to Trust & Enable instead. The Hugging Face bridges in `Intelligence/Models/MLXBridge.swift` are hand-written rather than mlx-swift-lm's macros for the same reason — a macro plugin would need `-skipMacroValidation` everywhere too.
-- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 318/39, 215/18, 26/4 — 559 tests in 61 suites, 2026-10-12 — and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
-- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 533 tests in 57 suites, verified 2026-10-12). It runs **three bundles** and prints a summary line for each — 292/35, 215/18, 26/4 — so the total is their *sum*; reading only the last one says "26 in 4" and looks like nearly all of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
+- Editor tests (macOS): `swift test --package-path Packages/NotesEditor` — **three bundles here too**: 342/43, 228/20, 29/5 — 599 tests in 68 suites, 2026-11-23 — and `tail` shows the smallest. A toolchain bump can stop this target *compiling*, which both editor suites share, so both die at once and silently: Xcode 27 made `TableEmbedTests.blankImage` unreachable from the `nonisolated` `BlockRenderer` witness beside it, and 408 + 387 tests had been building nothing for weeks. `error: Build failed` is a failing suite, not a missing one.
+- Editor tests (**iOS — run these too**): `cd Packages/NotesEditor && xcodebuild test -scheme NotesEditor-Package -destination 'platform=iOS Simulator,name=HN-iPad'` (~35s, headless, no app launch — 577 tests in 66 suites, verified 2026-11-23). It runs **three bundles** and prints a summary line for each — 320/41, 228/20, 29/5 — so the total is their *sum*; reading only the last one says "29 in 5" and looks like nearly all of the suite silently stopped running. `swift test` only ever builds the package for macOS, so the UIKit half went untested for its whole life — that is how a `UITextView` showing a document it believed was empty, a zero-width keyboard bar and a link tap that ate the caret tap all shipped at once. Create the device once with `xcrun simctl create HN-iPad com.apple.CoreSimulator.SimDeviceType.iPad-Pro-11-inch-M4-8GB com.apple.CoreSimulator.SimRuntime.iOS-27-0` (1.3.3's floor; the iOS 26.5 devices were kept, renamed `HN-iPad-26.5` etc., so `name=HN-iPad` resolves to one device). MLX cannot run in the simulator, and the app says so there.
 - **Look at the iOS app without the user's device**: `xcodebuild build -destination 'platform=iOS Simulator,name=HN-iPad'`, then `xcrun simctl install HN-iPad <app>`, `xcrun simctl launch HN-iPad com.hellotham.HelloNotes`, and `xcrun simctl io HN-iPad screenshot out.png` — which is readable. A whole iPad session was shipped blind (a keyboard bar that never rendered, a zero-width one, five inspector toggles that could not work at that width) because nobody looked. `simctl` has no tap injection, so driving the UI still needs the live panel — which needs `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` from the user.
 - Is it running on the device? `xcrun devicectl device info processes --device <id> | grep "HelloNotes.app/HelloNotes"` — **capital H**. A lower-cased pattern matches nothing and reads exactly like a crash-on-launch; an hour went into diagnosing a crash that never happened. Cross-check against `--domain-type systemCrashLogs`: no new `.ips` means no crash, whatever the process list appears to say.
 - Layout contract: `./scripts/run-tests.sh -only-testing:HelloNotesTests/ShellContractTests` (~2s — run it after any shell or representable change).
@@ -296,6 +296,26 @@
   Accessibility for the names of the person's other collections and their
   folders, printing a count and nothing else; a match takes no picture
   (`assets/screenshots-raw/README.md`).
+- **A launch argument is that launch's alone — what syncs reads the app's own
+  domain.** `object(forKey:)` answers from the argument domain first, and
+  `CloudPrefs` pushed what it answered: `window-parity.sh`'s `-textScale 1
+  -increaseContrast NO` went to iCloud's key-value store as the person's text
+  size and contrast, and the *next* launch — any launch, on any device —
+  pulled them into their own settings (implemented.md §51.78). So the
+  script's own check, which compares the preferences before and after its
+  run, saw nothing: the change landed a launch later. Push and compare
+  `persistentDomain(forName:)`; pull only a value of the kind the app writes
+  (`CloudPrefs.isSetting` — an argument is always a string). And after any
+  run that launched the app with arguments, compare every key's name with a
+  backup taken before it — at the next launch as well.
+- **A rewrite that lands after the text it rewrites keeps the caret where it
+  was in the text.** `EditorDocument.replaceFirst` edits the storage, and a
+  `UITextView` keeps its caret's *offset* through that: a picture's alt text,
+  filled in a moment after its link went in, left the caret inside the alt
+  text, and the next keystroke went into the description — paste's alt text
+  and a pasted link's title too, on iOS, from the day they were written
+  (implemented.md §51.77). Rewrite through `EditorProxy.replaceFirst(_:with:in:)`,
+  which sets the caret from where it was (`EditorDocument.selection(_:across:becoming:)`).
 - **A hosted test's defaults are `ScratchDefaults`, never
   `UserDefaults(suiteName:)`.** The tests run inside the app's sandbox, so a
   named suite is a plist in the person's own `Library/Preferences`, and
@@ -1061,7 +1081,11 @@
   `Label`. `.accessibilityLabel` does not rescue it: VoiceOver reads it and
   nobody sees it. `ShellComplianceTests.barControlsAreLabelledNotJustDrawn`
   allows one image-only label, the search field's clear button, and is meant to
-  stay one.
+  stay one. **UIKit's bars too**: the keyboard's formatting bar folds into a
+  ⋯ menu on an iPhone and titles each row from the `UIBarButtonItem`'s
+  `title` — an accessibility label is not read there — and six of its items
+  had none, from the day it was made (implemented.md §51.77). A source check
+  of the labels passed throughout; `FormattingBarTests` asks the built bar.
 - **A menu from a toolbar mid-screen is capped — about 520pt on a portrait
   iPad — and scrolls.** Settings came last in the iPad's `…` menu and fell below
   the fold of the menu added to make it findable. Order for the fold.

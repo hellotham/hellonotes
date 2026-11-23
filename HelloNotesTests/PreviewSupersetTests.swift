@@ -132,6 +132,17 @@ struct PreviewSupersetTests {
 
     /// A callout's body is still Markdown — it must reach cmark-gfm, not be
     /// frozen into the HTML.
+    /// `$$…$$` in a callout's body is one formula, as the editor draws it —
+    /// not `$`, a formula and `$`.
+    @Test func aFormulaInACalloutHasNoStrayDollars() async {
+        let out = await apply("> [!note] Definition\n> $$E=mc^2$$")
+        #expect(out.contains("hn-math-inline"), "no formula was drawn: \(out)")
+        #expect(!out.contains("$"), "a dollar was left beside the formula: \(out)")
+        // A plain quote's line too.
+        let quoted = await apply("> $$a^2$$ and $b$")
+        #expect(!quoted.contains("$"), "\(quoted)")
+    }
+
     @Test func aCalloutBodyIsStillMarkdown() async {
         let out = await apply("> [!note] Title\n> Some **bold** and a [link](https://x.com)")
         #expect(out.contains("**bold**"), "the body is handed on as Markdown, not pre-rendered")

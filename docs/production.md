@@ -768,7 +768,40 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10o · 1.3.6 build 36 — released on the App Store, both platforms, 2026-11-08; the DMG the same day
+## 10p · 1.3.7 build 37 — uploaded to TestFlight, both platforms, 2026-11-23
+
+At the person's word ("fix remaining issues, then build for testflight"),
+from the working tree on `release/1.3.7`: the branch's commits through
+`c097dcd` and everything since, **uncommitted** — nothing was committed,
+because nothing was asked to be. The version and build are the `9a8b9c8`
+bump's, 1.3.7 (37). **What 37 is for**: implemented.md §51.77–§51.84 — Insert
+Image (the collection, Photos, the camera, and a nearby iPhone on the Mac),
+Obsidian's pictures found by name and sized, the review of all of it, and
+what that review left.
+
+Before the archives (implemented.md §51.84): the editor package on the Mac
+(599) and the iPad (577), the app's suite (1,077 and the three XCTest cases),
+the phone's interface suite (21, 4 skipped by design) and the iPad's two, and
+the main-actor budget suite alone (18).
+
+Read back from each archive by `scripts/archive-readback.sh`: 1.3.7 (37) in
+the app and all six extensions; arm64 only; minos 27.0, built with SDK 27.2 on
+both; the Private Cloud Compute entitlement present; no temporary-exception
+entitlement; all five cloud-provider keys present (by length: 15, 32, 32, 72,
+36); `ITSAppUsesNonExemptEncryption` false.
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Upload | `Upload succeeded` 15:55, with the team key | `Upload succeeded` 15:50, with the team key |
+| Processing | `VALID` by 15:57 | `VALID` within minutes |
+| TestFlight | internal `IN_BETA_TESTING`; external not submitted | the same |
+| In ASC | Ready to Submit, in "HelloNotes testers", 1 invite, expires in 90 days | the same |
+
+Read through the API (`/v1/builds`, `buildBetaDetail`) with the team key; the
+key cannot list a build's beta groups (403), so the group was read from
+TestFlight's pages in the person's signed-in Chrome. Not attached to the 1.3.7
+versions and not submitted: that was not asked. **Commit before 1.3.7 goes to
+review**, so the build in review is a commit and not a working tree.
 
 From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
 `f2aa985`, and `2759b02` is the bump and 1.3.6's What's New

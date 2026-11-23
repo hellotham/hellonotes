@@ -376,7 +376,17 @@ final class Collection: Identifiable {
     var notes: [Note] = [] { didSet { shownCache = nil } }
 
     /// Non-Markdown files (PDFs, images, CSVs, …), browsable alongside notes.
-    var attachments: [CollectionFile] = [] { didSet { shownCache = nil } }
+    ///
+    /// The pictures among them are what `![[photo.png]]` is looked up in
+    /// (`CollectionEmbedProvider.pictureURL`), so the list goes to the
+    /// provider whenever it changes, which makes its index off the main
+    /// actor.
+    var attachments: [CollectionFile] = [] {
+        didSet {
+            shownCache = nil
+            embedProvider.update(pictures: attachments)
+        }
+    }
 
     /// Every directory inside the collection, so empty folders (e.g. one just
     /// created, or one whose last note moved out) still appear in the tree.
@@ -442,6 +452,7 @@ final class Collection: Identifiable {
             relatednessGeneration &+= 1
             let generation = relatednessGeneration
             let notes = self.notes
+            let hold = WorkHold.take(.relatednessBuild, for: rootURL.path)
             relatednessBuild = Task { () -> TermVectorRelatednessIndex? in
                 // Reading and preparing happens off the main actor; so does the
                 // tokenising inside `rebuild`, because the index is an actor.
@@ -467,6 +478,7 @@ final class Collection: Identifiable {
                     }
                     return documents
                 }
+                await hold?.wait()
                 guard relatednessGeneration == generation else { return nil }
                 let index = TermVectorRelatednessIndex()
                 await index.rebuild(with: documents)
@@ -867,6 +879,7 @@ final class Collection: Identifiable {
         git.onWorkingTreeChanged = { [weak self] in self?.workingTreeChangedByGit() }
         bookmarks.load(rootURL: rootURL, standardizedPath: identity.standardizedPath, spellings: identity.spellings)
         embedProvider.owner = self
+        embedProvider.listsPictures(in: rootURL, spellings: rootSpellings)
     }
 
     // MARK: - Scanning
@@ -1067,6 +1080,7 @@ final class Collection: Identifiable {
     /// production path uses `scanOffMain()`. Kept because it makes the test
     /// suite readable, and dangerous enough to say so here.
     func scan() {
+        defer { embedProvider.picturesAreListed() }
         if let reason = Self.unavailability(of: rootURL) { markUnavailable(reason); return }
         guard let result = Self.enumerate(rootURL) else { return }
         apply(result)
@@ -1248,6 +1262,15 @@ final class Collection: Identifiable {
         }
         defer {
             reveal.cancel()
+            // What `![[photo.png]]` in a note opened before this walk waited
+            // for: the pictures are listed — or the folder could not be read,
+            // which no wait would change. A walk stopped for a newer one
+            // leaves it to that one, and so does one resumed from where a
+            // walk at an earlier launch stopped: it lists only what it
+            // visits, and this launch's list of other files began empty (the
+            // index cache keeps notes alone), so said to be complete it was
+            // missing every picture in the part already walked.
+            if !Task.isCancelled, startedFromRoot { embedProvider.picturesAreListed() }
             // Only conclude a scan that announced itself. A scan nobody was
             // told about needs no receipt.
             if showsScanProgress {
@@ -1926,6 +1949,8 @@ final class Collection: Identifiable {
         externalReconcileTask?.cancel()
         stopObserving()
         externalChangeHandler = nil
+        // A picture still waiting for this collection's walk waits no longer.
+        embedProvider.picturesAreListed()
         if securityScoped { rootURL.stopAccessingSecurityScopedResource(); securityScoped = false }
     }
 
@@ -1953,6 +1978,7 @@ final class Collection: Identifiable {
         let unread = Set(keptSaves.keys).union(savesToIndex.keys)
         let begun = saveSerial
         let number = CollectionIndexCache.rebuildNumber()
+        let hold = WorkHold.take(.rebuild, for: root.path)
         // This rebuild includes whatever alias change that one waits for.
         aliasRebuild?.cancel()
         deriveTask?.cancel()
@@ -1991,6 +2017,7 @@ final class Collection: Identifiable {
                 }
                 return found
             }
+            await hold?.wait()
             guard !Task.isCancelled else { return }
 
             let pairs = withKeptSaves(found, begun: begun)
@@ -2867,6 +2894,11 @@ final class Collection: Identifiable {
         await withCheckedContinuation { savesIndexedWaiters.append($0) }
     }
 
+    /// How many are waiting in `savesIndexed` — a test's way to see that a
+    /// rename waits for a save still out, which the save landing at whatever
+    /// the rename waits for first could not show.
+    var waitingForSaves: Int { savesIndexedWaiters.count }
+
     /// One save's parse has landed, applied or not.
     private func saveIndexed() {
         savesBeingIndexed -= 1
@@ -2906,8 +2938,11 @@ final class Collection: Identifiable {
         // Built, or being built — a build may have read the note already.
         let forRelatedness = relatedness != nil || relatednessBuild != nil
         savesBeingIndexed += 1
+        // Taken now, in the order the saves were made (`WorkHold`).
+        let hold = WorkHold.take(.saveParse, for: url.path)
         Task { [weak self] in
             let parsed = await offMain { SavedNoteIndex(text, forRelatedness: forRelatedness) }
+            await hold?.wait()
             guard let self else { return }
             // After the patch, so a waiter that resumes finds it applied.
             defer { self.saveIndexed() }
@@ -3033,10 +3068,46 @@ final class Collection: Identifiable {
         rememberSelfWrite(url)
     }
 
-    /// A file the editor put beside a note: a pasted picture.
+    /// A file the editor put beside a note: a pasted picture, or one from the
+    /// photo library, the camera or an iPhone near a Mac.
     func fileMadeHere(_ url: URL) {
         rememberSelfWrite(url)
         madeHere(url, data: nil)
+        adopt(madeFile: url)
+    }
+
+    /// Take a file made here into the collection's picture at once, as a new
+    /// note is taken into its notes (`adopt(createdAt:)`): the write is the
+    /// collection's own, so no walk follows it, and Insert Image ▸ Choose
+    /// from Collection… left out the photo just added until the next one.
+    /// Into the list of other files when that list is kept
+    /// (`showsNonNoteFiles`); and its folder into the tree whether or not, as
+    /// the walk lists every folder — `assets` after the first picture. By
+    /// place, as everything a collection is handed; and nothing the walk
+    /// would not list (`.skipsHiddenFiles`), so a picture in an `.attachments`
+    /// folder is not shown until a walk takes it away again.
+    private func adopt(madeFile url: URL) {
+        let url = ownSpelling(of: url)
+        guard let at = place(of: url.path), !at.isEmpty,
+              !at.split(separator: "/").contains(where: { $0.hasPrefix(".") })
+        else { return }
+        let known = Set(folders.map { place(of: $0.path) ?? $0.path })
+        var folder = url.deletingLastPathComponent()
+        var arrived: [URL] = []
+        while let where_ = place(of: folder.path), !where_.isEmpty {
+            if !known.contains(where_) { arrived.append(folder) }
+            folder = folder.deletingLastPathComponent()
+        }
+        if !arrived.isEmpty { folders = (folders + arrived).sorted { $0.path < $1.path } }
+        var listed = false
+        if showsNonNoteFiles, !Self.isMarkdown(url, contentType: nil) {
+            let isTheFile = sameFile(as: url)
+            if !attachments.contains(where: { isTheFile($0.url) }) {
+                attachments.append(CollectionFile(url: url, lastModified: Date()))
+                listed = true
+            }
+        }
+        if listed || !arrived.isEmpty { revision &+= 1 }
     }
 
     /// Take a just-created file into the in-memory picture, without re-walking
@@ -3096,15 +3167,20 @@ final class Collection: Identifiable {
     /// Drop a note we just removed from the in-memory picture. See `adopt`.
     private func forget(_ note: Note) {
         rememberSelfWrite(note.fileURL)
-        savesToIndex[note.fileURL] = nil              // see `indexSaved`
-        keptSaves[note.fileURL] = nil                 // and `KeptSave`
         // By the file, as a rename takes a note out (`adopt(renamed:)`): by
         // the URL, a note handed in under the folder's other name was deleted
-        // and stayed listed.
+        // and stayed listed — and stayed in the relatedness index, which
+        // knows each note by the URL it is listed under, and went on offering
+        // the deleted note's title to Suggest Links until a rescan.
         let gone = sameFile(as: note.fileURL)
+        let urls = Set(notes.lazy.map(\.fileURL).filter(gone) + [note.fileURL])
+        for url in urls {
+            savesToIndex[url] = nil                   // see `indexSaved`
+            keptSaves[url] = nil                      // and `KeptSave`
+            removeFromRelatedness(url)
+        }
         notes.removeAll { gone($0.fileURL) }
         revision &+= 1
-        removeFromRelatedness(note.fileURL)
         embedProvider.update(notes: notes)
         derivedRevision &+= 1
 

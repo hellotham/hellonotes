@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import MarkdownEditor   // PreviewPictures
 
 @main
 struct HelloNotesApp: App {
@@ -61,6 +62,10 @@ struct HelloNotesApp: App {
         _library = State(initialValue: lib)
         _router = State(initialValue: NavigationRouter(library: lib))
         CloudPrefs.shared.start()   // mirror preference keys via iCloud KV
+        // A picture Preview shows by its private address (`![[photo.png]]`)
+        // is read as every file a note shows is: through `FileIO`, waited for
+        // if it is still in the cloud.
+        PreviewPictures.setReader { await FileIO.embeddedData(at: $0) }
     }
 
     /// Every app-wide observable, injected in one place.

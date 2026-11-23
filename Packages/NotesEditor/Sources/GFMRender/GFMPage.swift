@@ -201,8 +201,10 @@ public extension GFMRenderer {
     static func page(_ markdown: String, title: String = "", base: CGFloat = 16,
                      box: PageBox = .document, palette: Palette? = nil) -> String {
         let metrics = GFMBoxMetrics(base: base)
-        // GitHub-mode: hard line breaks, matching api.github.com/markdown.
-        let body = html(markdown, hardBreaks: true)
+        // GitHub-mode: hard line breaks, matching api.github.com/markdown —
+        // then the sizes a note gives its pictures, which GitHub does not read
+        // (`NoteMarkdown.sizingPictures`).
+        let body = NoteMarkdown.sizingPictures(html(markdown, hardBreaks: true))
         func px(_ v: CGFloat) -> String { String(format: "%.4f", Double(v)) + "px" }
         // A pane's page fills the pane, and its text sits in the pane's column:
         // margins the preview sets as the pane's width changes

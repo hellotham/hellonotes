@@ -44,7 +44,8 @@ struct NoteEditorPane: View {
     /// the collection's, for a caller that has one; the Mac's editor is handed
     /// a list instead, because at that level it has no `Collection`.
     var linkTargets: [String]? = nil
-    /// Renders `![[Note]]` transclusion cards.
+    /// Renders `![[Note]]` transclusion cards and finds `![[photo.png]]`'s
+    /// pictures.
     var embedProvider: CollectionEmbedProvider? = nil
 
     /// What `[[` and `#` complete to. Defaults to the collection's index.
@@ -191,7 +192,8 @@ struct NoteEditorPane: View {
                 currentText: { editor.text }
             ),
             intelligence: IntelligenceService(settings: intelligenceSettings),
-            onDiagramZoom: onDiagramZoom
+            onDiagramZoom: onDiagramZoom,
+            collection: collection
         )
     }
 

@@ -409,18 +409,17 @@ What remains are **constraints of the providers and the platform**, not deferred
     what happened now (implemented.md §51.49), and the suite has passed whole
     on GitHub twice since (runs 38232186521, 38234811944); each had failed
     one run in five.
-  - 🟡 *A one-thread pool still fails six tests*
-    (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`): the three
-    `SaveIndexingTests` that stage a save still parsing, and
-    `aSaveMadeWhileRelatednessIsBuiltReachesIt`, whose setups say "this tests
-    nothing" there; `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt`, which
-    waits on the app's own timer while holding the only thread; and
+  - 🟡 *A one-thread pool still fails one test*
+    (`TEST_RUNNER_LIBDISPATCH_COOPERATIVE_POOL_STRICT=1`):
+    `aChangeDuringAWalkQueuesAPassAndDoesNotCancelIt`, which waits on the
+    app's own timer while holding the only thread (failed again 2026-11-22).
     `aLookThatLandsAfterClosingSaysNothing`, not woken while its look holds
-    it, for a reason not found (§51.48). Not the runner's conditions — but
-    the three that stage a save still parsing do it by the size of a note,
-    and nothing stops the runner finding that race over before it is looked
-    at. A way to hold one save's parse, as `availabilityProbes` holds a look
-    at a folder, would make them exact.
+    it for a reason not found (§51.48), passed there once on 2026-11-22 —
+    once, which is not a fix. ✅ ~~The four `SaveIndexingTests` that staged a
+    race by the size of a note or a folder of slow ones~~ — a save still
+    parsing, the relatedness index still building — are staged with holds
+    now (`WorkHold`, implemented.md §51.81), and all twenty pass on a
+    one-thread pool.
   - 🟡 *Has the two-names defect been biting on devices?* §51.48 fixed a
     collection holding one note under `/var/…` and `/private/var/…`. Nothing
     here can run on a device to say whether a closed tab or an unselected note

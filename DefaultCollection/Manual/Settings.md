@@ -17,9 +17,10 @@ whether a note shows its title.
 
 ## Folders
 
-Where pasted images go — a subfolder, or beside the note — how daily notes are
-named and which folder they go in, and the templates folder. On a Mac these are
-under **General**.
+Where new pictures go — pasted ones, photos from **Insert Image**, and on a Mac
+a photo from an iPhone or iPad nearby — a subfolder, or beside the note; how
+daily notes are named and which folder they go in; and the templates folder.
+These are under **General**.
 
 ## AI
 

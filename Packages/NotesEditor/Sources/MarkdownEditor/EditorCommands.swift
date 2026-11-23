@@ -25,6 +25,36 @@ public enum EditorFormatCommand: Sendable, Equatable {
     case orderedList
 }
 
+/// Where a picture put into a note comes from. The editor's bar on iPhone and
+/// iPad and the host's Format menu offer these, by these names — the camera
+/// only where there is one, so never on a Mac; the host shows the picker,
+/// puts a new picture in the collection and inserts the link
+/// (`onInsertImage`, `EditorBus.insertImage`).
+public enum EditorImageSource: String, CaseIterable, Sendable {
+    /// A picture already in the collection, linked where it is.
+    case collection
+    /// The photo library: saved into the collection, beside the note.
+    case photoLibrary
+    /// The camera: saved into the collection, beside the note.
+    case camera
+
+    public var title: String {
+        switch self {
+        case .collection: String(localized: "Choose from Collection…")
+        case .photoLibrary: String(localized: "Choose from Photos…")
+        case .camera: String(localized: "Take Photo…")
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .collection: "folder"
+        case .photoLibrary: "photo.on.rectangle"
+        case .camera: "camera"
+        }
+    }
+}
+
 /// What a Markdown formatting command needs from an editor view.
 ///
 /// These commands used to be an extension on `MarkdownTextView` — the *macOS*
@@ -404,13 +434,25 @@ public extension MarkdownFormatting where Self: UITextView {
     /// space that shows four. Grouping by *kind* rather than arbitrarily is
     /// what makes the collapsed form still make sense.
     func installFormattingAssistant() {
+        // Named, not merely drawn — an SF Symbol is not a label — and named by
+        // a **title**: a bar that runs out of room folds what does not fit into
+        // a ⋯ menu and titles each row from the item's title, never from its
+        // accessibility label. On an iPhone the headings, lists and quote were
+        // six bare glyphs there until 1.3.7. The bar itself draws the image.
         func item(_ symbol: String, _ label: String,
                   _ command: EditorFormatCommand) -> UIBarButtonItem {
-            let action = UIAction(image: UIImage(systemName: symbol)) { [weak self] _ in
+            let action = UIAction(title: label, image: UIImage(systemName: symbol)) { [weak self] _ in
                 self?.apply(command)
             }
             let button = UIBarButtonItem(primaryAction: action)
-            // Named, not merely drawn — an SF Symbol is not a label.
+            button.accessibilityLabel = label
+            return button
+        }
+        /// What a group becomes when its members do not fit — titled for the
+        /// same reason.
+        func standIn(_ symbol: String, _ label: String) -> UIBarButtonItem {
+            let button = UIBarButtonItem(title: label, image: UIImage(systemName: symbol),
+                                         primaryAction: nil, menu: nil)
             button.accessibilityLabel = label
             return button
         }
@@ -423,9 +465,7 @@ public extension MarkdownFormatting where Self: UITextView {
                 item("highlighter", "Highlight", .highlight),
                 item("chevron.left.forwardslash.chevron.right", "Code", .inlineCode),
             ],
-            representativeItem: UIBarButtonItem(
-                image: UIImage(systemName: "bold.italic.underline"), menu: nil))
-        inline.representativeItem?.accessibilityLabel = "Text Style"
+            representativeItem: standIn("bold.italic.underline", "Text Style"))
 
         let blocks = UIBarButtonItemGroup(
             barButtonItems: [
@@ -433,17 +473,36 @@ public extension MarkdownFormatting where Self: UITextView {
                 item("list.bullet", "Bulleted List", .unorderedList),
                 item("list.number", "Numbered List", .orderedList),
             ],
-            representativeItem: UIBarButtonItem(
-                image: UIImage(systemName: "list.bullet"), menu: nil))
-        blocks.representativeItem?.accessibilityLabel = "Lists"
+            representativeItem: standIn("list.bullet", "Lists"))
 
         let headings = UIBarButtonItemGroup(
             barButtonItems: (1...3).map {
                 item("\($0).square", "Heading \($0)", .heading($0))
             },
-            representativeItem: UIBarButtonItem(
-                image: UIImage(systemName: "textformat.size"), menu: nil))
-        headings.representativeItem?.accessibilityLabel = "Headings"
+            representativeItem: standIn("textformat.size", "Headings"))
+
+        // **A picture**, from the collection, the photo library or the camera:
+        // a menu, because each source opens a picker of the host's, which puts
+        // a new picture in the collection and inserts the link (`onInsertImage`
+        // — asked at the tap, since the host's closures arrive after this bar
+        // is made). The camera only where there is one: not in the simulator,
+        // and not on a Mac running the iPad app. And only on a text view that
+        // can put one in (`PictureRequesting`) — the live editor: the source
+        // editor installs this bar too, in Markdown and Split, where the item
+        // would be listed and do nothing. Format ▸ Insert Image is Edit's
+        // alone the same way (`canFormat`).
+        let sources = EditorImageSource.allCases.filter {
+            $0 != .camera || UIImagePickerController.isSourceTypeAvailable(.camera)
+        }
+        let picture: [UIBarButtonItem] = self is PictureRequesting ? [UIBarButtonItem(
+            title: String(localized: "Insert Image"), image: UIImage(systemName: "photo.badge.plus"),
+            primaryAction: nil,
+            menu: UIMenu(children: sources.map { source in
+                UIAction(title: source.title, image: UIImage(systemName: source.systemImage)) { [weak self] _ in
+                    (self as? PictureRequesting)?.requestPicture(from: source)
+                }
+            }))] : []
+        picture.forEach { $0.accessibilityLabel = String(localized: "Insert Image") }
 
         // The view's own traits, not the device's: a capability of the
         // shortcuts bar, which only an iPad's keyboard has, and the one idiom
@@ -451,6 +510,7 @@ public extension MarkdownFormatting where Self: UITextView {
         if traitCollection.userInterfaceIdiom == .pad {
             inputAssistantItem.leadingBarButtonGroups = [inline, blocks]
             inputAssistantItem.trailingBarButtonGroups = [headings]
+                + (picture.isEmpty ? [] : [UIBarButtonItemGroup(barButtonItems: picture, representativeItem: nil)])
         } else {
             // iPhone has no shortcuts bar. An accessory above the keyboard is
             // the native answer there, and it does not overlap the app's bottom
@@ -462,11 +522,22 @@ public extension MarkdownFormatting where Self: UITextView {
             let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
             bar.autoresizingMask = .flexibleWidth
             bar.items = inline.barButtonItems + blocks.barButtonItems
-                + headings.barButtonItems
+                + headings.barButtonItems + picture
             bar.sizeToFit()
             inputAccessoryView = bar
         }
     }
+}
+
+/// What the keyboard bar's Insert Image menu asks of the text view it belongs
+/// to: the host's picker for `source` (`MarkdownUITextView.onInsertImage`).
+@MainActor
+protocol PictureRequesting: AnyObject {
+    func requestPicture(from source: EditorImageSource)
+}
+
+extension MarkdownUITextView: PictureRequesting {
+    func requestPicture(from source: EditorImageSource) { onInsertImage?(source) }
 }
 #else
 

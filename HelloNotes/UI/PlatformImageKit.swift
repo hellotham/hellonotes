@@ -115,13 +115,30 @@ nonisolated enum PlatformImageKit {
         let natural = image.size
         guard natural.width > 0, natural.width > maxWidth else { return image }
         let ratio = maxWidth / natural.width
-        let size = CGSize(width: maxWidth, height: natural.height * ratio)
+        return resized(image, to: CGSize(width: maxWidth, height: natural.height * ratio))
+    }
+
+    /// `image` drawn at `size`, up or down — what a note's
+    /// `![[photo.png|300]]` asks for. Off-main-safe, as `scaled` is.
+    ///
+    /// Any size above nought is drawn: a divider 2000 pixels by 2 brought
+    /// down to a 640-point column is 0.64 points tall, and handed back
+    /// unscaled it ran 2000 points across the page. And no bitmap is made
+    /// with more pixels than the picture has or `pixelBudget`, whichever is
+    /// more: bringing a picture down never needs more, and a note's size can
+    /// ask for one much larger than its picture (`PictureNames.drawnSize`
+    /// keeps a height given when the width is narrowed to the pane).
+    static func resized(_ image: PlatformImage, to size: CGSize) -> PlatformImage {
+        let natural = image.size
+        guard natural.width > 0, natural.height > 0, size.width > 0, size.height > 0,
+              size.width.isFinite, size.height.isFinite, size != natural else { return image }
         #if canImport(AppKit)
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return image }
         // Preserve the source's pixel density so a retina render stays crisp.
-        let density = max(1, CGFloat(cg.width) / natural.width)
-        let pxW = max(1, Int((size.width * density).rounded()))
-        let pxH = max(1, Int((size.height * density).rounded()))
+        let density = Self.density(max(1, CGFloat(cg.width) / natural.width), drawing: size,
+                                   from: CGFloat(cg.width) * CGFloat(cg.height))
+        let pxW = Self.pixels(size.width * density)
+        let pxH = Self.pixels(size.height * density)
         guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: pxW, height: pxH, bitsPerComponent: 8,
                                   bytesPerRow: 0, space: cs,
@@ -137,10 +154,31 @@ nonisolated enum PlatformImageKit {
         #else
         let format = UIGraphicsImageRendererFormat.preferred()
         format.opaque = false
+        let own = image.cgImage.map { CGFloat($0.width) * CGFloat($0.height) }
+            ?? natural.width * natural.height * image.scale * image.scale
+        format.scale = Self.density(format.scale, drawing: size, from: own)
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in
             image.draw(in: CGRect(origin: .zero, size: size))
         }
         #endif
+    }
+
+    /// The most pixels a picture drawn larger than it is may be given —
+    /// 4096 × 4096, 64 MB. One drawn smaller is given its own at most.
+    static let pixelBudget: CGFloat = 4096 * 4096
+
+    /// `density`, pixels a point, or less: as many as keep a bitmap of
+    /// `size` within `pixels` — the picture's own — or `pixelBudget`.
+    private static func density(_ density: CGFloat, drawing size: CGSize, from pixels: CGFloat) -> CGFloat {
+        let area = size.width * size.height
+        guard area > 0, area.isFinite else { return density }
+        return min(density, (max(pixels, pixelBudget) / area).squareRoot())
+    }
+
+    /// A side's pixels: one at least, and no more than a bitmap's side can
+    /// be — worked out before it is an `Int`, which traps past `Int.max`.
+    private static func pixels(_ length: CGFloat) -> Int {
+        Int(min(max(1, length.rounded()), 32_768))
     }
 
     /// Render a laid-out view (e.g. `MTMathUILabel`) into a `CGImage` at

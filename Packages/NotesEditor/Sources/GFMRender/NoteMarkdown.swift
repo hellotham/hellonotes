@@ -107,13 +107,22 @@ public enum NoteMarkdown {
     /// hold a wiki link, and those never build a pattern at all.
     private static func rewriteWikiLinks(_ line: String, inTable: Bool) -> String {
         guard line.contains("[[") else { return line }
-        // ![[ target (| alias)? ]]  — the alias is display-only, drop it for images.
+        // ![[ target (| alias)? ]] — an alias has nowhere to show, and is
+        // dropped; a picture's size is kept, as Obsidian sizes a Markdown
+        // image, and the page reads it (`sizingPictures`).
         let embedRegex = /!\[\[([^\]|]+)(\|[^\]]+)?\]\]/
         // [[ target (| alias)? ]]
         let wikiRegex = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/
         var s = line
         s = s.replacing(embedRegex) { match in
-            "![](" + encode(target(String(match.1), aliased: match.2 != nil, inTable: inTable)) + ")"
+            let name = target(String(match.1), aliased: match.2 != nil, inTable: inTable)
+            // Escaped, as a table's row needs it; outside one cmark reads `\|`
+            // as `|`.
+            var size = ""
+            if PictureNames.isPicture(name), let alias = match.2, let asked = PictureNames.sizeSuffix(of: alias) {
+                size = "\\|\(asked.width)" + (asked.height.map { "x\($0)" } ?? "")
+            }
+            return "![" + size + "](" + encode(name) + ")"
         }
         // A link's destination is a `hellonotes-wiki:` address, as Edit's is,
         // so a click on it is told from any other link's and followed to the
@@ -145,5 +154,95 @@ public enum NoteMarkdown {
     private static func encode(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespaces)
             .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s
+    }
+}
+
+// MARK: - Picture sizes
+
+public extension NoteMarkdown {
+    /// Obsidian's picture sizes, on a rendered page. Obsidian sizes a
+    /// Markdown image in its description — `![A cat|300](cat.png)`,
+    /// `![A cat|300x200](cat.png)`, `![|300](https://…)` — which cmark, as
+    /// GitHub, writes as the description: `<img src="cat.png" alt="A cat|300"
+    /// />`, at the picture's own size. This gives that `<img>` the size, and
+    /// the description without it — the size Edit draws a picture in the
+    /// collection at (`PictureNames`; Edit draws no picture from the web).
+    ///
+    /// After cmark, on its own output, where every form a destination, a
+    /// title and a reference can take has been read into one: cmark writes an
+    /// image one way only — `<img src="…" alt="…" />`, a title after the
+    /// description, the description's quotes and angle brackets escaped — so
+    /// each is found by its opening and read up to its `>`. (An `<img>`
+    /// written by hand in exactly that shape is taken for one.) The size must
+    /// be the last thing in the description, after a pipe, a whole number
+    /// above nought (`PictureNames.sizeSuffix`, the rule Edit reads by).
+    /// `GFMRenderer.html` is left as GitHub renders: the page is where the
+    /// note's dialect is drawn.
+    ///
+    /// **Bytes, not a pattern.** A page carries its formulas, diagrams and
+    /// cards inline, as `data:` addresses, and a long note's runs to tens of
+    /// megabytes. A `Regex` over the whole page — and `String.contains`, its
+    /// first guard — cost some tens of nanoseconds a byte, which held a long
+    /// note's page in Split mode past the pause it is drawn at
+    /// (`typingInSplitModeBarelyTouchesTheMainActor`, implemented.md §51.82).
+    /// `memmem` and `memchr` look at a page at the speed of memory, and only
+    /// an image's own tag is read as text.
+    static func sizingPictures(_ html: String) -> String {
+        var page = html
+        let sized: [(range: Range<Int>, tag: String)] = page.withUTF8 { bytes in
+            guard let base = bytes.baseAddress, bytes.count > 0 else { return [] }
+            let opening = Array("<img src=\"".utf8)
+            var found: [(range: Range<Int>, tag: String)] = []
+            var at = 0
+            while at < bytes.count {
+                guard let hit = memmem(base + at, bytes.count - at, opening, opening.count) else { break }
+                let start = UnsafeRawPointer(base).distance(to: UnsafeRawPointer(hit))
+                let afterOpening = start + opening.count
+                guard afterOpening < bytes.count,
+                      let close = memchr(base + afterOpening, Int32(UInt8(ascii: ">")), bytes.count - afterOpening)
+                else { break }
+                let stop = UnsafeRawPointer(base).distance(to: UnsafeRawPointer(close)) + 1
+                let tag = UnsafeBufferPointer(rebasing: bytes[start..<stop])
+                if let resized = Self.sized(tag) { found.append((start..<stop, resized)) }
+                at = stop
+            }
+            return found
+        }
+        guard !sized.isEmpty else { return html }
+        return page.withUTF8 { bytes in
+            var out = ""
+            out.reserveCapacity(bytes.count + sized.count * 32)
+            var at = 0
+            for (range, tag) in sized {
+                out += String(decoding: UnsafeBufferPointer(rebasing: bytes[at..<range.lowerBound]), as: UTF8.self)
+                out += tag
+                at = range.upperBound
+            }
+            out += String(decoding: UnsafeBufferPointer(rebasing: bytes[at..<bytes.count]), as: UTF8.self)
+            return out
+        }
+    }
+
+    /// `tag` — `<img src="…" alt="…" />`, a ` title="…"` perhaps after the
+    /// description — with the size its description ends in made its width
+    /// and height, or nil when it is not that shape or names no size.
+    private static func sized(_ tag: UnsafeBufferPointer<UInt8>) -> String? {
+        let text = String(decoding: tag, as: UTF8.self)
+        let opening = "<img src=\""
+        guard text.hasPrefix(opening), text.hasSuffix(" />"),
+              let srcEnd = text[text.index(text.startIndex, offsetBy: opening.count)...].firstIndex(of: "\"")
+        else { return nil }
+        let afterSrc = text[srcEnd...]
+        guard afterSrc.hasPrefix("\" alt=\"") else { return nil }
+        let altStart = text.index(srcEnd, offsetBy: 7)
+        guard let altEnd = text[altStart...].firstIndex(of: "\"") else { return nil }
+        let alt = text[altStart..<altEnd]
+        let rest = text[text.index(after: altEnd)...]   // ` />` or ` title="…" />`
+        guard rest == " />" || (rest.hasPrefix(" title=\"") && rest.hasSuffix("\" />")),
+              let pipe = alt.lastIndex(of: "|"),
+              let size = PictureNames.sizeSuffix(of: alt) else { return nil }
+        var out = String(text[..<altStart]) + alt[..<pipe] + "\" width=\"\(size.width)\""
+        if let height = size.height { out += " height=\"\(height)\"" }
+        return out + rest
     }
 }

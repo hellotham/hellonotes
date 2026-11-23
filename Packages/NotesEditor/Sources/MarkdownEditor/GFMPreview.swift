@@ -400,6 +400,9 @@ struct PreviewScrollMemory {
 @MainActor final class GFMWebLoadState {
     var loaded: Int?
 
+    /// Answers the page's `hn-picture:` requests (`PreviewPictures`).
+    let pictureScheme = PreviewPictureScheme()
+
     /// The web view this state belongs to, so a heading jump has something to
     /// scroll. Weak: the coordinator must not keep the view alive.
     weak var web: WKWebView?
@@ -686,6 +689,10 @@ extension GFMWebView {
         // page can be without them.
         config.userContentController.add(state.diagramZoomRelay, name: DiagramZoomRelay.name)
         config.userContentController.add(state.scrollRelay, name: PreviewScrollRelay.name)
+        // The pictures `![[…]]` names, wherever they are: the page's own base
+        // is the note's folder, and a web view reads no further
+        // (`PreviewPictures`). Kept by the state, as the relays are.
+        config.setURLSchemeHandler(state.pictureScheme, forURLScheme: PreviewPictures.scheme)
         installScripts(config.userContentController, page: 0, offset: 0, margins: (0, 0))
         let web = PreviewWebView(frame: .zero, configuration: config)
         web.state = state

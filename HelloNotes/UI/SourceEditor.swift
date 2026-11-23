@@ -466,7 +466,9 @@ struct SourceEditor: UIViewRepresentable {
         SourceEditor.makeSourceOnly(tv)
         tv.keyboardDismissMode = .interactive
         // The same formatting affordances the live editor installs, so the
-        // shortcuts bar is the same in Markdown and Split as it is in Edit.
+        // shortcuts bar is the same in Markdown and Split as it is in Edit —
+        // but for Insert Image, which only the live editor can answer
+        // (`PictureRequesting`), and so is Edit's alone.
         tv.installFormattingAssistant()
         tv.isFindInteractionEnabled = true
         tv.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)

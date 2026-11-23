@@ -4,7 +4,7 @@
 //
 //  Created by Chris Tham on 21/8/2026.
 //
-//  Where pasted images go, and the daily-note / template folder conventions —
+//  Where new pictures go, and the daily-note / template folder conventions —
 //  three settings written once and shown by both platforms' settings screens.
 //
 //  They were written twice. The Mac's `GeneralSettingsView` offered "Pasted
@@ -29,8 +29,8 @@ import SwiftUI
 /// shows them owns the container — Settings' General page is
 /// `ChromeForm { FolderConventionSections() }`.
 struct FolderConventionSections: View {
-    /// Folder (relative to the note) where pasted images are saved. Empty means
-    /// the same folder as the note.
+    /// Folder (relative to the note) where new pictures are saved — pasted, or
+    /// a new photo. Empty means the same folder as the note.
     @AppStorage("attachmentFolder") private var attachmentFolder = "assets"
     @AppStorage("dailyNoteFolder") private var dailyNoteFolder = ""
     @AppStorage("dailyDateFormat") private var dailyDateFormat = "yyyy-MM-dd"
@@ -48,7 +48,11 @@ struct FolderConventionSections: View {
 
     var body: some View {
         ChromeSection("Attachments") {
-            ChromePopUp("Pasted images", selection: Binding(
+            // Every picture the app writes into a note's collection: a pasted
+            // one, and a photo from Insert Image (the photo library, the
+            // camera, an iPhone near a Mac). One chosen from the collection
+            // stays where it is.
+            ChromePopUp("New pictures", selection: Binding(
                 get: { location },
                 set: { newValue in
                     switch newValue {
@@ -69,9 +73,9 @@ struct FolderConventionSections: View {
                         let trimmed = newValue.trimmingCharacters(in: .whitespaces)
                         if !trimmed.isEmpty { subfolderName = trimmed }
                     }
-                caption("Pasted images go in “\(attachmentFolder)” beside each note — e.g. `![](\(attachmentFolder)/Pasted-….png)`. The folder is created on first paste.")
+                caption("Pasted pictures and new photos go in “\(attachmentFolder)” beside each note — e.g. `![](\(attachmentFolder)/Pasted-….png)`. The folder is made with the first one.")
             } else {
-                caption("Pasted images are saved next to each note — e.g. `![](Pasted-….png)`.")
+                caption("Pasted pictures and new photos are saved next to each note — e.g. `![](Pasted-….png)`.")
             }
         }
         // Restore the remembered subfolder name from whatever is stored, so

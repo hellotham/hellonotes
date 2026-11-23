@@ -38,6 +38,15 @@ public nonisolated enum EditorBus {
         Notification.Name("hnEditorFormat.\(kind).\(editor)")
     }
 
+    /// Insert a picture at the caret — `userInfo["source"]` is an
+    /// `EditorImageSource`'s raw value. Posted by a Format menu, and answered
+    /// by the editor's *host*, which shows the picker: the editor has no
+    /// collection to put a picture in. The editor's own bar on iOS reaches the
+    /// same host directly (`onInsertImage`).
+    public static func insertImage(editor: String) -> Notification.Name {
+        Notification.Name("hnEditorInsertImage.\(editor)")
+    }
+
     /// Put the n-th heading at the top: `userInfo["ordinal"]`, with
     /// `userInfo["title"]`.
     ///

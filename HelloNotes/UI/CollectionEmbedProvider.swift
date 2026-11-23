@@ -6,11 +6,13 @@
 //
 
 import Foundation
+import MarkdownCore     // PictureNames
 import MarkdownEditor   // PlatformImage
 
-/// Renders `![[Note]]` / `![[Note#heading]]` transclusions to images. The
-/// target note's Markdown is rendered to a titled card via ``NoteTranscluder``;
-/// non-note targets (image files) return nil (the editor loads those directly).
+/// Renders `![[Note]]` / `![[Note#heading]]` transclusions to images — the
+/// target note's Markdown rendered to a titled card via ``NoteTranscluder`` —
+/// and finds the picture an `![[photo.png]]` names among the collection's
+/// pictures (`pictureURL`), which Edit and Preview each draw themselves.
 ///
 /// Reads the target note lazily on `image(forName:isDark:)` and caches by
 /// content (keyed on a cheap mtime `stat` + appearance) so repeat renders are
@@ -150,6 +152,192 @@ nonisolated final class CollectionEmbedProvider: @unchecked Sendable {
         // was emptied outright past 64, and the next page drew every card again.
         lock.withLock { cache[key] = image }
         return image
+    }
+
+    // MARK: - Pictures
+
+    /// The pictures the collection holds, by place (`PictureIndex`); its
+    /// folder and that folder's spellings, to find a note's place by; and
+    /// whether a walk has listed the folder since the collection opened. A
+    /// provider of a view's own has no collection, no folder and no list,
+    /// and never waits for one. All guarded by `lock`.
+    private var pictures = PictureIndex()
+    private var pictureRoot: URL?
+    private var pictureRootSpellings: [String] = []
+    private var picturesListed = false
+    private var waitingForPictures: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    /// The collection this provider draws for will list its pictures: its
+    /// folder, and every spelling of it (`Collection.rootSpellings`).
+    func listsPictures(in root: URL, spellings: [String]) {
+        lock.withLock {
+            pictureRoot = root
+            pictureRootSpellings = spellings
+        }
+    }
+
+    /// Where the index is made: off the main actor, and in the order it was
+    /// asked for, so `picturesAreListed` — queued here too — says so only
+    /// once the walk's pictures are in it. Made on the main actor, at every
+    /// change to the collection's files, it cost two to three microseconds a
+    /// picture: tens of milliseconds a change in a vault of ten thousand.
+    private let indexing = DispatchQueue(label: "com.hellotham.HelloNotes.picture-index", qos: .userInitiated)
+    /// The newest list handed over; an older one still queued is not made.
+    private var newestPictures = 0
+
+    /// The collection's other files, as a walk or a change to them left them:
+    /// the pictures among them — what `PictureNames` calls one, which is what
+    /// Edit and Preview draw — by their places in the collection, made into
+    /// the index off the main actor (`indexing`).
+    func update(pictures files: [CollectionFile]) {
+        let asked = lock.withLock { () -> Int in
+            newestPictures += 1
+            return newestPictures
+        }
+        indexing.async { [self] in
+            let spellings = lock.withLock { asked == newestPictures ? pictureRootSpellings : nil }
+            guard let spellings else { return }
+            let index = PictureIndex(places: files.compactMap {
+                PictureNames.isPicture($0.url.lastPathComponent)
+                    ? Collection.place(of: $0.url.path, in: spellings) : nil
+            })
+            lock.withLock { if asked == newestPictures { pictures = index } }
+        }
+    }
+
+    /// A walk has listed the folder — or the folder cannot be read, or the
+    /// collection has closed: what is listed now is all a wait will get.
+    /// Behind any list still being made (`indexing`), so a lookup it wakes
+    /// finds what the walk found.
+    func picturesAreListed() {
+        indexing.async { [self] in
+            let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                picturesListed = true
+                defer { waitingForPictures.removeAll() }
+                return Array(waitingForPictures.values)
+            }
+            for continuation in waiting { continuation.resume() }
+        }
+    }
+
+    /// The file the picture `embed` names, seen from `note`, or nil.
+    ///
+    /// Among the collection's pictures first (`PictureIndex`): no disk, and
+    /// the only way to find `![[photo.png]]` in a folder the note does not
+    /// name. Then the paths it can name on the disk — from the note's folder,
+    /// from the collection's, the note's own pictures folder — for a
+    /// collection that does not list its other files (Show Non-Note Files
+    /// off), a folder the walk does not enter (`.attachments`), and a note
+    /// in no collection at all. Then, if the collection has not yet listed
+    /// its folder — a note opened at launch is drawn from the index cache
+    /// before the walk that lists pictures has run — and `waitForList`,
+    /// once it has. Edit waits: its picture is drawn when it lands. Preview
+    /// does not: its page is drawn again when the walk's rebuild moves
+    /// `revision`.
+    ///
+    /// `@concurrent`: the disk is asked, and the caller may be anywhere.
+    @concurrent func pictureURL(for embed: PictureEmbed, from note: URL,
+                                attachmentFolder: String, waitForList: Bool) async -> URL? {
+        let folder = note.deletingLastPathComponent()
+        func listed() -> URL? {
+            let (index, root, spellings) = lock.withLock { (pictures, pictureRoot, pictureRootSpellings) }
+            guard let root, !index.isEmpty,
+                  let notePlace = Collection.place(of: folder.path, in: spellings),
+                  let place = index.place(of: embed, fromNoteIn: notePlace, attachmentFolder: attachmentFolder)
+            else { return nil }
+            return root.appending(path: place, directoryHint: .notDirectory)
+        }
+        // The lists handed over so far, in the index: a walk's lands off the
+        // main actor (`indexing`), and Preview's page, drawn again as the walk
+        // ends, would otherwise look before it was there — and say the
+        // picture in words until something else drew the page again.
+        await indexed()
+        if let found = listed() { return found }
+        if let found = await onDisk(embed, from: folder, attachmentFolder: attachmentFolder) { return found }
+        guard waitForList, embed.byName else { return nil }
+        let expectsList = lock.withLock { pictureRoot != nil && !picturesListed }
+        // Listed since the first look — the walk landed while the disk was
+        // asked — so the list is looked at again, not given up on: the index
+        // is always updated before the folder is said to be listed.
+        guard expectsList else { return listed() }
+        await waitForPictures()
+        return listed()
+    }
+
+    /// The paths `embed` can name, looked for on the disk — each asked on
+    /// the scans' lanes (`FileIO.onScanLane`), where the picture found is
+    /// read (`FileIO.embeddedData`). A folder a provider has not brought
+    /// down, or a share that has stopped answering, answers when it pleases,
+    /// and asked on the concurrency pool each embed on a page held one of its
+    /// few threads for as long. Worked out by text — `URL.standardized`,
+    /// which asks nothing, never `standardizedFileURL`, which asks the disk
+    /// whether a path spelled `/private/…` has a shorter name.
+    private func onDisk(_ embed: PictureEmbed, from folder: URL, attachmentFolder: String) async -> URL? {
+        let written = embed.path
+        guard !written.isEmpty else { return nil }
+        let (root, spellings) = lock.withLock { (pictureRoot, pictureRootSpellings) }
+        var tries: [URL] = []
+        if written.hasPrefix("/") {
+            if let root { tries.append(root.appending(path: String(written.drop(while: { $0 == "/" })))) }
+        } else {
+            tries.append(folder.appending(path: written))
+            if embed.byName {
+                if let root { tries.append(root.appending(path: written)) }
+                let sub = attachmentFolder.trimmingCharacters(in: .whitespaces)
+                if !sub.isEmpty { tries.append(folder.appending(path: sub).appending(path: written)) }
+            }
+        }
+        for candidate in tries.map(\.standardized) {
+            // An Obsidian embed names a picture in its vault: `../` climbs no
+            // further than the collection's folder. By text, against its
+            // spellings (`Collection.place(of:in:)`).
+            if embed.byName, root != nil, Collection.place(of: candidate.path, in: spellings) == nil { continue }
+            if await FileIO.onScanLane(for: candidate, { Self.isFile(candidate) }) { return candidate }
+        }
+        return nil
+    }
+
+    /// Whether a file is at `url`, as the folder is now
+    /// (`FileIO.currentResourceValues`) — a file in the cloud not yet
+    /// downloaded is a file — and through a symbolic link, as `fileExists`
+    /// answered: a link's own resource values say it is not a regular file.
+    private static func isFile(_ url: URL) -> Bool {
+        guard let values = try? FileIO.currentResourceValues(at: url, keys: [.isRegularFileKey, .isSymbolicLinkKey])
+        else { return false }
+        if values.isRegularFile == true { return true }
+        guard values.isSymbolicLink == true else { return false }
+        return (try? FileIO.currentResourceValues(at: url.resolvingSymlinksInPath(),
+                                                  keys: [.isRegularFileKey]))?.isRegularFile == true
+    }
+
+    /// Until every list handed over before now is in the index (`indexing`,
+    /// which is serial). One hop when nothing is being made.
+    private func indexed() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            indexing.async { continuation.resume() }
+        }
+    }
+
+    /// How many lookups are waiting for the collection to list its folder —
+    /// for a test to wait on, rather than for a time it hopes is long enough.
+    var lookupsWaitingForPictures: Int { lock.withLock { waitingForPictures.count } }
+
+    /// Until the collection says its folder is listed, or this task is
+    /// cancelled — a note closed while it waited.
+    private func waitForPictures() async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                let now = lock.withLock { () -> Bool in
+                    if picturesListed || Task.isCancelled { return true }
+                    waitingForPictures[id] = continuation
+                    return false
+                }
+                if now { continuation.resume() }
+            }
+        } onCancel: {
+            lock.withLock { waitingForPictures.removeValue(forKey: id) }?.resume()
+        }
     }
 
     private func splitHeading(_ name: String) -> (base: String, heading: String?) {
