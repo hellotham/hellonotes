@@ -768,7 +768,7 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10p · 1.3.7 build 37 — uploaded to TestFlight, both platforms, 2026-11-23
+## 10p · 1.3.7 build 37 — submitted for review, both platforms, 2026-11-24 (TestFlight 2026-11-23)
 
 At the person's word ("fix remaining issues, then build for testflight"),
 from the working tree on `release/1.3.7`: the branch's commits through
@@ -805,6 +805,23 @@ at the person's word: `0b6becb` holds build 37's code exactly — what changed
 after the archives, in it and after it, is documents (implemented.md §51.84,
 this section, the instructions' test counts, and 1.3.7's What's New in
 `docs/app-store-listing.md`).
+
+**Submitted the next day, at the person's word** ("testflight build tested
+okay, submit to ASC for review and distribution"), with the team key's
+identifiers in the environment:
+
+| | iPhone and iPad | Mac |
+|---|---|---|
+| Text | `asc-listing.py text 1.3.7`: What's New written and read back equal; description, promotional text and review notes already as the file | the same |
+| Build | `build 1.3.7 37`: VALID, attached | the same |
+| Pictures | 6 iPhone, 5 iPad, all complete | 10, all complete |
+| Release | after approval (`AFTER_APPROVAL`) | the same |
+| Review | `submit 1.3.7` 12:56 — `WAITING_FOR_REVIEW` | `WAITING_FOR_REVIEW` |
+
+No review submission was open before it. Read back in the person's Chrome: both
+platforms "1.3.7 Waiting for Review" beside 1.3.6's "Ready for Distribution",
+the Mac's page "being prepared for App Review" with automatic release
+selected. The DMG and the site wait for the person's word.
 
 From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
 `f2aa985`, and `2759b02` is the bump and 1.3.6's What's New
