@@ -768,7 +768,7 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10p · 1.3.7 build 37 — submitted for review, both platforms, 2026-11-24 (TestFlight 2026-11-23)
+## 10p · 1.3.7 build 37 — submitted for review, both platforms, 2026-11-24 (TestFlight 2026-11-23); the DMG the same day
 
 At the person's word ("fix remaining issues, then build for testflight"),
 from the working tree on `release/1.3.7`: the branch's commits through
@@ -821,7 +821,11 @@ identifiers in the environment:
 No review submission was open before it. Read back in the person's Chrome: both
 platforms "1.3.7 Waiting for Review" beside 1.3.6's "Ready for Distribution",
 the Mac's page "being prepared for App Review" with automatic release
-selected. The DMG and the site wait for the person's word.
+selected. **The DMG followed within the hour**, at the person's `/release
+1.3.7`: 1.3.7 build 37, Developer ID without the Private Cloud Compute
+entitlement (A2), archived and exported with the team key, notarised and
+stapled; `v1.3.7` latest on GitHub at 13:08:49, the page's version, size and
+checksum synced and `pendingVersion: '1.3.7'` (implemented.md §51.85).
 
 From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
 `f2aa985`, and `2759b02` is the bump and 1.3.6's What's New

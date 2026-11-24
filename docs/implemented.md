@@ -8416,6 +8416,42 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
+### 51.85 1.3.7 (37): App Review and the download (2026-11-24)
+
+At the person's word, after testing build 37 from TestFlight: "submit to ASC
+for review and distribution", then `/release 1.3.7`.
+
+- **App Review.** `asc-listing.py text 1.3.7` wrote the What's New on both
+  platforms (read back equal; the description, promotional text and review
+  notes already as the file), `build 1.3.7 37` attached it (VALID), `status`
+  was clean — 6 iPhone, 5 iPad and 10 Mac pictures, complete at the store's
+  sizes — no review submission was open, both versions release after
+  approval, and `submit 1.3.7` put both in WAITING_FOR_REVIEW at 12:56.
+  Read back in App Store Connect in the person's Chrome (production.md §10p).
+- **The download.** Archived again with the Developer ID entitlements, without
+  Private Cloud Compute, the team key for the archive's provisioning and the
+  export. Notarised (Accepted), stapled and packaged by `package-dmg.sh`.
+  Read back from the mounted image: Notarized Developer ID, arm64, no
+  private-cloud-compute entitlement, the staple valid, 1.3.7 (37); every
+  cloud-provider key in the archive. 29.5 MB (29,515,370 bytes), SHA-256
+  `411665c3…ff7c0535`; 1.3.6's image kept as `dist/HelloNotes-1.3.6.dmg`.
+- **Published in the order the page needs**, as 1.3.6 was: `main` first,
+  fast-forwarded to the release branch without `site.ts` (`83c2f4a`: the
+  manual's pages deployed, the download page still describing 1.3.6); `v1.3.7`
+  made as a prerelease that is not latest; `site.ts` pushed (`2564b92`: 1.3.7,
+  29.5 MB, the checksum, 1.3.7 with Apple); the release flipped to latest the
+  moment that deploy finished, at 13:08:49. The live page was read, not the
+  checkout — the new checksum and size, no trace of the old — the button's URL
+  answered 200, and `check-download-page.sh` downloaded what it serves and
+  found 1.3.7, 29.5 MB, that checksum, with the App Store on 1.3.6 and 1.3.7
+  pending. The site audit was clean before each push.
+- One stumble: `gh release create --target 83c2f4a` was refused ("target_commitish
+  is invalid") — the API wants a full SHA or a branch; `--target main`, which
+  was at that commit.
+
+**At approval**: `liveVersion: '1.3.7'`, `pendingVersion: null`, and the README,
+the changelog and the release's notes, as 1.3.6's were (§51.73).
+
 ### 51.84 The rest of the review's list, and 1.3.7 (37) to TestFlight (2026-11-23)
 
 At the person's word: "fix remaining issues, then build for testflight" —
