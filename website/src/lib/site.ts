@@ -10,7 +10,7 @@ export const APP = {
    * The current release — what the direct download for Mac is. The App Store
    * can be a version behind while Apple reviews it: see `APP_STORE` below.
    */
-  version: '1.3.6',
+  version: '1.3.7',
   /** The Mac floor. Also the DMG's requirement — that channel is Mac-only. */
   minMacOS: 'macOS 27 or later',
   minIOS: 'iOS & iPadOS 27 or later',
@@ -66,7 +66,7 @@ export const APP_STORE = {
    * version until this is done.
    */
   liveVersion: '1.3.6',
-  pendingVersion: null as string | null,
+  pendingVersion: '1.3.7' as string | null,
 } as const;
 
 /** Whether the App Store is a version behind the direct download. */
@@ -96,8 +96,8 @@ export const DOWNLOAD = {
   url: `${REPO}/releases/latest/download/HelloNotes.dmg`,
   releasesPage: `${REPO}/releases/latest`,
   fileName: 'HelloNotes.dmg',
-  size: '29.4 MB',
-  sha256: 'e609f3ef390100df381ae6a7cab018a8b7947c6f0a2edd97202c38c8c4b451d9',
+  size: '29.5 MB',
+  sha256: '411665c3c5bc331274430dae4646018ea99b657177ccc6ea1c4c57b9ff7c0535',
 } as const;
 
 /** Primary nav. Secondary/legal links live in the footer. */
