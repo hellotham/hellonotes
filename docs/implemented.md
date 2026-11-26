@@ -8416,7 +8416,7 @@ One gate was not run: `window-parity.sh`. It quits the person's running app and
 relaunches it, and a cloud collection restored from `remoteCollectionCaches`
 would be in the capture.
 
-### 51.85 1.3.7 (37): App Review and the download (2026-11-24)
+### 51.85 1.3.7 (37): App Review, the download and the release (2026-11-24)
 
 At the person's word, after testing build 37 from TestFlight: "submit to ASC
 for review and distribution", then `/release 1.3.7`.
@@ -8449,8 +8449,17 @@ for review and distribution", then `/release 1.3.7`.
   is invalid") — the API wants a full SHA or a branch; `--target main`, which
   was at that commit.
 
-**At approval**: `liveVersion: '1.3.7'`, `pendingVersion: null`, and the README,
-the changelog and the release's notes, as 1.3.6's were (§51.73).
+**Apple released it on both platforms the same day** — READY_FOR_DISTRIBUTION
+on iPhone, iPad and Mac, build 37, the store's lookup answering 1.3.7 with
+`currentVersionReleaseDate` 2026-11-24T23:05:55Z (the morning of the 25th
+here). Done at the person's word ("ASC approved - update website"), as 1.3.6's
+was (§51.73): `site.ts` `liveVersion: '1.3.7'`, `pendingVersion: null`; the
+README's version and a line for pictures; the changelog's 1.3.7; the listing's
+labels (`b6c3979`). Built and audited, pushed, deployed, and read live: the
+download page says "Version 1.3.7 — free on the App Store, or as a direct
+download for Mac", its App Store card names 1.3.7, no notice, no 1.3.6;
+`check-download-page.sh` passes against the store. The release's notes on
+GitHub say Apple released it.
 
 ### 51.84 The rest of the review's list, and 1.3.7 (37) to TestFlight (2026-11-23)
 

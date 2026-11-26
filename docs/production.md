@@ -768,7 +768,7 @@ On the version page:
 Review is typically **~1–3 days**; 1.3.2 took three days from the 4 September
 resubmission to the 7 September release. Status changes arrive by email.
 
-## 10p · 1.3.7 build 37 — submitted for review, both platforms, 2026-11-24 (TestFlight 2026-11-23); the DMG the same day
+## 10p · 1.3.7 build 37 — released on the App Store, both platforms, 2026-11-24; the DMG the same day
 
 At the person's word ("fix remaining issues, then build for testflight"),
 from the working tree on `release/1.3.7`: the branch's commits through
@@ -826,6 +826,10 @@ selected. **The DMG followed within the hour**, at the person's `/release
 entitlement (A2), archived and exported with the team key, notarised and
 stapled; `v1.3.7` latest on GitHub at 13:08:49, the page's version, size and
 checksum synced and `pendingVersion: '1.3.7'` (implemented.md §51.85).
+**Apple released it on both platforms the same day** — READY_FOR_DISTRIBUTION
+on iPhone, iPad and Mac, `currentVersionReleaseDate` 2026-11-24T23:05:55Z —
+and the site said so on the 26th (`liveVersion: '1.3.7'`, `pendingVersion:
+null`, `b6c3979`), with the README, the changelog and the release's notes.
 
 From `2759b02` on `release/1.3.6`, a clean tree: the work is `4f29b53` and
 `f2aa985`, and `2759b02` is the bump and 1.3.6's What's New
