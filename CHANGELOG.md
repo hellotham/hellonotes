@@ -6,6 +6,63 @@ the one shown in **HelloNotes ▸ About HelloNotes**.
 
 ---
 
+## 1.3.7 — 2026-11-24 · direct download and App Store (iPhone, iPad and Mac)
+
+*Build 37. The download went out with the submission and the App Store
+released it the same day.*
+
+### Pictures
+
+- **Insert Image** puts a picture where you are writing, in Edit: one already
+  in your collection, linked where it is with nothing copied; one from your
+  photo library — which keeps where it was taken unless you turn that off in
+  the picker; or, on iPhone and iPad, a new photo from the camera. It is on the
+  bar above the keyboard on iPhone and iPad, at Format ▸ Insert Image on the
+  Mac, and in the command palette. New pictures are saved into your collection
+  beside the note, in the folder named in Settings ▸ General ▸ Attachments —
+  assets, unless you change it.
+- **On a Mac with an iPhone or iPad nearby, File ▸ Import From Device** — or
+  Import from iPhone or iPad when you right-click in a note — takes a photo and
+  puts it in the note, saved the same way.
+- **An inserted picture goes in as a paragraph of its own** — inside a callout,
+  a quote or a list item if that is where you were — at the end of a note with
+  no caret in it, never inside its properties, and with a short description
+  made on your device. A picture from your collection that is kept only in
+  iCloud goes in without one.
+- **Descriptions of pasted and inserted pictures are more accurate**: a photo is
+  no longer taken for a screenshot of garbled text, and text in a photo is read
+  the right way up.
+
+### Obsidian's pictures
+
+- **`![[photo.png]]` is found by name anywhere in your collection**, as Obsidian
+  finds it, and shown in Edit and in Preview — beside a word, and in a list, a
+  quote or a callout too.
+- **Obsidian's sizes work**: `![[photo.png|300]]` shows a picture 300 points
+  wide, `|300x200` sets both sides, and the same goes at the end of an ordinary
+  picture's description: `![A cat|300](cat.png)`.
+
+### Also
+
+- The tabs for your open notes start at the left of the bar, rather than in the
+  middle.
+- A formula written `$$…$$` on one line in a callout, a quote or a list item is
+  drawn as one formula, with no dollar sign either side.
+
+### Fixed
+
+- In an Obsidian vault in iCloud Drive, Rename and Move to Trash could do
+  nothing, and New Note could put the note at the top of the vault rather than
+  in the folder you were in. (iPhone and iPad.)
+- On iPad, a blank strip could show between the note's bottom bar and the
+  keyboard's bar.
+- On iPhone, some commands in the keyboard bar's ⋯ menu had no names.
+- After pasting a picture or a link, the caret could end up inside its
+  description or title, and Undo could remove the wrong text. (iPhone and
+  iPad.)
+
+---
+
 ## 1.3.6 — 2026-11-08 · direct download and App Store (iPhone, iPad and Mac)
 
 *Build 36. The download went out with the submission and the App Store

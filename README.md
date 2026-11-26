@@ -1,6 +1,6 @@
 # HelloNotes
 
-> **Version 1.3.6** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
+> **Version 1.3.7** · A blazing-fast, local-first, native macOS (and iOS) Markdown knowledge base with built-in AI — synced effortlessly via Git.
 
 HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps like Obsidian and cross-platform editors like Typora. It's built strictly on modern Swift — **AppKit + TextKit 2 + SwiftUI** — prioritising high-FPS text rendering, plain `.md` files as the absolute source of truth, and seamless background Git synchronisation. **No proprietary database. Your files in Finder *are* the database** — and those files can live locally *or* in Box, Dropbox, OneDrive, Google Drive or iCloud, opened on demand without pulling the whole vault down.
 
@@ -20,7 +20,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release, in user-facing terms |
 | [docs/implemented.md](docs/implemented.md) | Implementation history — milestones, the editor rewrite, the retired markdown-engine fork, GFM fidelity, HIG pass, and cloud storage |
 
-## ✨ Features (v1.3.6)
+## ✨ Features (v1.3.7)
 
 **Local-first, multi-collection**
 - No CoreData, SwiftData or database; your `.md` files are the truth (settings sync through iCloud's key-value store — never a note). Open **several collections at once** as a *library*, with a launcher, recents, and saved library sets. The first launch opens **DefaultCollection**, the bundled tour and user manual; File ▸ Open Default Collection brings it back.
@@ -31,6 +31,7 @@ HelloNotes is a native Apple-ecosystem alternative to Electron knowledge apps li
 - Live TextKit 2 Markdown styling as you type: headings, emphasis, lists, task lists, tables, footnotes — with Obsidian/Bear-style **caret-driven concealment** (move the caret into a construct and its Markdown source is revealed for editing).
 - Natively rendered (no browser engine): syntax-highlighted code, **LaTeX math**, **inline Mermaid diagrams**, Obsidian-style **callouts** (collapsible, with icons), dimmed `%%comments%%`, and hidden front matter paired with a typed, editable **Properties** panel.
 - **Note transclusion** — `![[Note]]` / `![[Note#heading]]` render as inline cards.
+- **Pictures** — **Insert Image** puts one where you are writing, inside a callout, quote or list item if you are in one: from the collection (linked where it is), from Photos, from the camera on iPhone and iPad, or from an iPhone nearby on the Mac (**File ▸ Import From Device**), described on-device by Vision. Obsidian's `![[photo.png]]` is found by name anywhere in the collection, as Obsidian finds it, and `|300` / `|300x200` size a picture — in an embed or a Markdown image's description — in Edit and Preview alike.
 - **GitHub-identical Preview** — the read-only Preview renders through **cmark-gfm** (the same engine GitHub uses) + GitHub's own CSS, proven by 672/672 GFM-spec conformance and byte-parity with the GitHub Markdown API. The live editor's styling is driven by the same engine.
 - **View modes**: Edit (live), Preview (read-only), Markdown (source), and Split — plus **⌘F find & replace**, image paste → `assets/`, smart paste (HTML → Markdown), multi-tab and multi-window editing, document statistics, outline with jump-to-heading, and **HTML/PDF export**.
 - **Marp slide decks** — notes with Marp front matter get a native slides preview.

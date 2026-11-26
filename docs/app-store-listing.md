@@ -54,7 +54,7 @@ Plain Markdown files you own, with AI from Apple Foundation Models on your devic
 markdown,knowledge base,wiki,backlinks,zettelkasten,pkm,notes,notetaking,git,graph,local,privacy
 ```
 
-**Version** — What's New, iPhone and iPad (1.3.7 build 37, on TestFlight since 23 November 2026; not yet submitted):
+**Version** — What's New, iPhone and iPad (1.3.7 build 37, on the App Store since 24 November 2026):
 ```
 HelloNotes 1.3.7 puts pictures in your notes — from your collection, your photo library or the camera — and shows Obsidian's pictures wherever they are in your vault.
 
@@ -73,7 +73,7 @@ HelloNotes 1.3.7 puts pictures in your notes — from your collection, your phot
 HelloNotes 1.3.7 requires iOS 27.
 ```
 
-**Version** — What's New, Mac (1.3.7 build 37, on TestFlight since 23 November 2026; not yet submitted):
+**Version** — What's New, Mac (1.3.7 build 37, on the App Store since 24 November 2026):
 ```
 HelloNotes 1.3.7 puts pictures in your notes — from your collection, your Photos library or an iPhone nearby — and shows Obsidian's pictures wherever they are in your vault.
 
